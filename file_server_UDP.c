@@ -8,15 +8,17 @@
 #include "server_test.h"
 
 #define SERV_PORT 5193
-#define BACKLOG 10
 #define MAXLINE 1024
+#define THREAD_POOL	10
 
-void buf_clear(char *buffer)
-{
-    for (int i=0; i<MAXLINE; i++) buffer[i] = '\0';
-}
+pthread_mutex_t list_mux = PTHREAD_MUTEX_INITIALIZER;
 
-int filelist_ctrl(char* filename) // control file già presente in filelist.
+int sem_avb;
+int listensd;
+
+Client *cliaddr_head;
+
+int filelist_ctrl(char* filename)
 {
     FILE *fp;
     int ret = 1;
@@ -24,14 +26,14 @@ int filelist_ctrl(char* filename) // control file già presente in filelist.
     
     fp = fopen("filelist.txt", "r");
     if (fp == NULL) {
-        fprintf(stderr, "errore: impossibile aprire filelist.txt");
+        fprintf(stderr, "Error: couldn't open filelist.txt");
         ret = 0;
     } else {
-        printf("filelist.txt aperto correttamente.\n");
+        printf("filelist.txt correctly opened.\n");
     }
     printf("\n");
     while (fgets(s, strlen(filename)+1, fp)) {
-        printf("data from filelist.txt: %s\n", s);
+        printf("Data from filelist.txt: %s\n", s);
         printf("strcmp = %d\n", strncmp(filename, s, strlen(filename)));
         if (strncmp(filename, s, strlen(filename)) == 0) {
             ret = 0;
@@ -44,87 +46,92 @@ int filelist_ctrl(char* filename) // control file già presente in filelist.
 }
 
 
-
-void response_list(int sd, struct sockaddr_in servaddr)
+void response_list(int sd, struct sockaddr_in addr)
 {
-    socklen_t addrlen = sizeof(servaddr);
+    socklen_t addrlen = sizeof(addr);
     char buff[MAXLINE];
     char *sendline;
     FILE *fp;
     char *filename = "filelist.txt";
     size_t max_size;
-    int count;
-    
+      
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        fprintf(stderr, "errore: impossibile aprire %s", filename);
-        exit(-1);
+        fprintf(stderr, "Error: couldn't open %s", filename);
+        return;
     } else {
-        printf("%s aperto correttamente.\n", filename);
+        printf("%s correctly opened.\n", filename);
     }
     
-    // prelevo la lunghezza del contenuto del file
+    //Retrieve file dimension
     fseek(fp, 0, SEEK_END);
     max_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     
-    //invio la lunghezza del contenuto del file
+    //Send file dimension
     buf_clear(buff);
     sprintf(buff, "%ld", max_size);
-    printf("file size: %ld\n", max_size);
+    printf("File size: %ld\n", max_size);
     
-    if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
-        fprintf(stderr, "errore inviando la dimensione del file %s.", filename);
-        exit(-1);
+    if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        //fprintf(stderr, "Error: couldn't send the dimension of %s\n", filename);
+        perror("sendto(dimension)");
+        return;
     } else {
-        printf("dimensione di %s inviata correttamente.\n", filename);
+        printf("Dimension of %s correctly sent.\n", filename);
     }
     
-    /* invio il contenuto del file */
-    sendline = (char*) malloc(max_size);
+    /* Send file content */
+    if((sendline = (char*) malloc(max_size)) == NULL){
+        perror("Malloc() failed");
+        exit(-1);
+    }
     
-    // scrivo il contenuto del file sul buffer
+    //Write content on a buffer
     char ch;
-    for (int i=0; i<max_size; i++) {
+    for (int i=0; i<(int)max_size; i++) {
         ch = fgetc(fp);
         sendline[i] = ch;
         if (ch == EOF) break;
     }
     
-    // invio il contenuto del file al client
-    if(sendto(sd, sendline, max_size, 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
-        fprintf(stderr, "errore inviando il file al client.");
-        exit(-1);
+    //Send the content to the client
+    if(sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send content to client.");
+        free(sendline);
+        return;
+    } else {
+        printf("%s correctly sent.\n", filename);
     }
     
     free(sendline);
-    printf("sendline freed.\n\n");
-    
+    printf("sendline freed.\n\n"); 
 }
 
 
-void response_get(int sd, struct sockaddr_in servaddr)
+void response_get(int sd, struct sockaddr_in addr)
 {
-    socklen_t addrlen = sizeof(servaddr);
+    socklen_t addrlen = sizeof(addr);
     char buff[MAXLINE];
     char *sendline;
     FILE *fp;
     size_t max_size;
     
-    // attende il nome del file
-    printf("attendo il nome del file...\n");
-    buf_clear(buff);
-    recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&servaddr, &addrlen);
-    
+    //Retrieve filename from socket
+    if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't retrieve filename.\n");
+        return;
+    }
+
     fp = fopen(buff, "r");
     if (fp == NULL) {
-        fprintf(stderr, "errore: impossibile aprire il file %s.", buff);
-        exit(-1);
+        fprintf(stderr, "Error: couldn't open %s.", buff);
+        return;
     } else {
-        printf("il file %s è stato aperto correttamente.\n", buff);
+        printf("File %s correctly opened.\n", buff);
     }
     
-    // prelevo la dimensione del file
+    //Retrieve the file dimension
     fseek(fp, 0, SEEK_END);
     max_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
@@ -132,33 +139,38 @@ void response_get(int sd, struct sockaddr_in servaddr)
     buf_clear(buff);
     sprintf(buff, "%ld", max_size);
     
-    //invio la dimensione del file
-    if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile inviare la dimensione del file.\n");
-        exit(-1);
+    //Send the file dimension
+    if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the dimension.\n");
+        return;
     } else {
-        printf("dimensione del file inviata correttamente.\n");
+        printf("File dimension correctly sent.\n");
     }
     
-    //alloco spazio sufficiente per inviare il file
-    sendline = (char*)malloc(max_size);
+    //Allocate sufficient space to send the file
+    if((sendline = (char*)malloc(max_size)) == NULL){
+        perror("Malloc() failed.");
+        exit(-1);
+    }
     
     char ch;
-    for (int i=0; i<max_size; i++) {
+    for (int i=0; i<(int)max_size; i++) {
         ch = fgetc(fp);
         sendline[i] = ch;
         if (ch == EOF) break;
     }
     
-    // invio il file al client
-    if (sendto(sd, sendline, max_size, 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile inviare il contenuto del file richiesto.\n");
-        exit(-1);
-    } else {
-        printf("contenuto del file inviato correttamente.\n");
+    //Send the file to the client
+    if (sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the file content.\n");
         free(sendline);
-        printf("sendline freed.\n\n");
+        return;
+    } else {
+        printf("File content correctly sent.\n");
     }
+
+    free(sendline);
+    printf("sendline freed.\n\n");
 }
 
 void response_put(int sd, struct sockaddr_in addr)
@@ -171,126 +183,230 @@ void response_put(int sd, struct sockaddr_in addr)
     size_t file_size;
     char *recvline;
     
-    //prelevo dal socket il nome del file da aggiungere
+    //Retrieve filename from socket
     if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile prelevare il nome del file.\n");
-        exit(-1);
+        fprintf(stderr, "Error: couldn't retrieve filename.\n");
+        return;
     } else {
         filename = strdup(buff);
-        printf("filename: %s\n", filename);
+        printf("Filename: %s\n", filename);
     }
     
-    // apro il file in scrittura
-    fp = fopen(buff, "w+");
+    //Open the file associated with the filename
+    fp = fopen(filename, "w+");
     if (fp == NULL) {
-        fprintf(stderr, "errore: impossibile aprire il file %s", buff);
-        exit(-1);
+        fprintf(stderr, "Error: couldn't open file %s", filename);
+        return;
     } else {
-        printf("file %s aperto correttamente.\n", filename);
+        printf("File %s correctly opened.\n", filename);
     }
     
-    if (filelist_ctrl(filename)) { // controllo se il file è già presente sul server
+    if (filelist_ctrl(filename)) { //check if the file already exists in the server and if not create it
         flp = fopen(filelist, "a+");
         if (flp == NULL) {
-            fprintf(stderr, "impossibile aprire filelist");
-            exit(-1);
+            fprintf(stderr, "Error: couldn't open filelist.");
+            return;
         } else {
-            printf("filename aperto correttamente.\n");
+            printf("Filelist correctly opened.\n");
         }
         
-        fputs(filename, flp); // aggiungo il file al filelist
+        fputs(filename, flp); //Add the new filename to the list
         fputs("\n", flp);
         fclose(flp);
-    }
+    } 
     
-    
-    // prelevo dal socket la dimensione del file
+    //Retrieve file dimension from socket
     buf_clear(buff);
     if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile ricevere la dimensione del file dal client.");
-        exit(-1);
+        fprintf(stderr, "Error: couldn't retrieve the file dimension.");
+        return;
     } else {
         file_size = atoi(buff);
-        printf("file size: %ld\n", file_size);
+        printf("File size: %ld\n", file_size);
     }
     
-    // ricevi il contenuto del file dal client
-    recvline = (char*)malloc(file_size);
-    if (recvfrom(sd, recvline, file_size, 0, (struct sockaddr*)&addr, &addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile prelevare il contenuto del file.");
-        exit(-1);
-    } else {
-        printf("contenuto del file prelevato correttamente.\n");
+    //Retrieve file content from socket
+    if((recvline = (char*)malloc(file_size)) == NULL){
+        perror("Malloc() failed.");
+        exit(EXIT_FAILURE);
     }
-    // scrivo il contenuto sul file
+
+    if (recvfrom(sd, recvline, file_size, 0, (struct sockaddr*)&addr, &addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't retrieve file content.");
+        free(recvline);
+        return;
+    } else {
+        printf("File content correclty retrieved.\n");
+    }
+
+    //Writing content on file
     printf("\n\n");
     puts(recvline);
     printf("\n");
     fputs(recvline, fp);
-    fflush(fp);
     fclose(fp);
     
     free(recvline);
     printf("recvline freed.\n");
 }
+   
+void* thread_service(void){
 
+	struct sembuf oper;
+	struct sockaddr_in address;
+	char* cmd;
+	char buff[MAXLINE];
 
-int main(int argc, char* argv[])
+	while(1){
+		
+		oper.sem_num = 0;
+		oper.sem_op = -1;
+		oper.sem_flg = 0;
+
+		//Waiting for a request to serve
+		while(semop(sem_avb, &oper, 1) == -1){
+	    	if(errno == EINTR){
+	    		continue;
+	    	}else{
+	    		fprintf(stderr, "semop() failed");
+	    		exit(EXIT_FAILURE);
+	    	}
+		}
+
+		//Retrieve client address and request
+		pthread_mutex_lock(&list_mux);
+
+		get_and_remove(&cliaddr_head, &address, buff);
+
+	    pthread_mutex_unlock(&list_mux);
+
+	    cmd = strtok(buff, " \n");
+	    printf("Selected request: %s\n", cmd);
+	    
+	    //SERVE THE CLIENT
+	    if (strcmp(cmd, "list") == 0) {
+	        //Respond to LIST
+	        response_list(listensd, address);
+	    } else if (strcmp(cmd, "get") == 0) {
+	        //Respond to GET
+	        if((cmd = strtok(NULL, " \n")) == NULL){
+	        	printf("Please, insert also the filename.\n");
+	        	break;
+	        } 
+	        response_get(listensd, address);
+	    } else if (strcmp(cmd, "put") == 0) {
+	        //Respond to PUT
+	        if((cmd = strtok(NULL, " \n")) == NULL){
+	        	printf("Please, insert also the filename.\n");
+	        	break;
+	        } 
+	        response_put(listensd, address);
+	    } else {
+	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
+	        exit(EXIT_FAILURE);
+	    }
+	}
+}
+
+int main(void)
 {
-    int listensd, connsd, nbytes;
-    long file_size;
-    struct sockaddr_in servaddr;
+    pthread_t tid[THREAD_POOL];
+
     char buff[MAXLINE];
-    char *sendline;
-    FILE *fp;
-    socklen_t addrlen = sizeof(servaddr);
-    char *cmd;
-    
-    // crea il listening socket
+
+    key_t ksem_avb = 324;
+    struct sembuf ops;
+
+    struct sockaddr_in cliaddr;
+    struct sockaddr_in servaddr;
+    socklen_t cliaddrlen = sizeof(cliaddr);
+    socklen_t servaddrlen = sizeof(servaddr);
+      
+    //Create listening socket
     if ((listensd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        fprintf(stderr, "errore in socket");
+        fprintf(stderr, "socket() failed");
         exit(-1);
     }
     
-    // inizalizzo l'indirizzo ip
-    memset((void*)&servaddr, 0, sizeof(servaddr));
-    
+    //Initialize server IP address
+    memset((void*)&servaddr, 0, sizeof(servaddr)); 
     servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY); // il server accetta connessioni su una qualunque delle sue interfacce di rete
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     servaddr.sin_port = htons(SERV_PORT);
     
-    // Assegna l'indirizzo al socket
-    if (bind(listensd, (struct sockaddr*)&servaddr, addrlen) < 0) {
-        fprintf(stderr, "errore in bind.");
+    //Assign server address to the socket
+    if (bind(listensd, (struct sockaddr*)&servaddr, servaddrlen) < 0) {
+        fprintf(stderr, "bind() failed");
         exit(-1);
     } else {
-        printf("\033[0;32mbinding eseguito correttamente.\033[0m\n");
+        printf("\033[0;32mBinding completed successfully.\033[0m\n");
     }
 
+    //Initialize semaphore
+    while((sem_avb = semget(ksem_avb, 1, IPC_CREAT|IPC_PRIVATE|0600)) == -1){
+    	if(errno == EINTR){
+    		continue;
+    	}else{
+    		//fprintf(stderr, "semget() failed");
+            perror("semget() failed");
+    		exit(-1);
+    	}
+    }
+
+    while(semctl(sem_avb, 0, SETVAL, 0) == -1){
+    	if(errno == EINTR){
+    		continue;
+    	}else{
+    		//fprintf(stderr, "semctl() failed");
+            perror("semctl() failed");
+    		exit(-1);
+    	}
+	}
+
+	ops.sem_num = 0;
+	ops.sem_op = 1;
+	ops.sem_flg = 0;
+
+	//Initialize client address list
+	cliaddr_head = NULL;
+    
+    //Create thread pool
+    for(int i=0; i<THREAD_POOL; i++){
+    	if(pthread_create(&tid[i], 0, (void*)thread_service, NULL)){
+            fprintf(stderr, "pthread_create() failed");
+            close(listensd);
+            exit(-1);
+        } 
+    }
 
     while(1) {
-        printf("\033[0;34mattendo un comando...\033[0m\n");
+
+        printf("\033[0;34mWaiting for a request...\033[0m\n");
+
         buf_clear(buff);
-        recvfrom(listensd, buff, MAXLINE, 0, (struct sockaddr*)&servaddr, &addrlen);
-        
-        // Prelevo il tipo di comando
-        cmd = strtok(buff, " \n");
-        printf("comando selezionato: %s\n", cmd);
-        
-        if (strcmp(cmd, "list") == 0) {
-            // effettuo il comando list
-            response_list(listensd, servaddr);
-        } else if (strcmp(cmd, "get") == 0) {
-            // effettuo comando get
-            response_get(listensd, servaddr);
-        } else if (strcmp(cmd, "put") == 0) {
-            // effettuo comando put
-            response_put(listensd, servaddr);
-        } else {
-            fprintf(stderr, "errore: impossibile rilevare il comando.\n");
-            exit(-1);
-        }
-    
+
+        if (recvfrom(listensd, buff, MAXLINE, 0, (struct sockaddr*)&cliaddr, &cliaddrlen) == -1) {
+        	perror("recvfrom() failed");
+        	close(listensd);
+	        exit(-1);
+	    }
+
+        printf("\033[0;34mReceived a new request.\033[0m\n");
+
+        //Add new client address to list
+        pthread_mutex_lock(&list_mux);
+        insert_node(&cliaddr_head, cliaddr, buff);
+        pthread_mutex_unlock(&list_mux);
+
+        //Signal the serving threads 
+        while(semop(sem_avb, &ops, 1) == -1){
+	    	if(errno == EINTR){
+	    		continue;
+	    	}else{
+	    		fprintf(stderr, "semop() failed");
+	    		exit(-1);
+	    	}
+		}
     }
     exit(0);
 }

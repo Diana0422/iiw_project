@@ -5,44 +5,39 @@
 //  Created by Diana Pasquali on 20/07/2020.
 //
 
+#define _GNU_SOURCE
+
 #include "client_test.h"
 
 #define SERV_PORT 5193
-#define MAXLINE 5036
 
-void buf_clear(char *buffer)
-{
-    for (int i=0; i<MAXLINE; i++) buffer[i] = '\0';
-}
-
-
-int request_list(int sd, struct sockaddr_in addr) // OK
+int request_list(int sd, struct sockaddr_in addr) 
 {
     socklen_t addrlen = sizeof(addr);
     char buff[MAXLINE];
     char *recvline;
     size_t max_size;
-    int err = 0;
-    char *filename;
-    FILE *f;
-    int n, count = 0;
+    int n;
     
-    // ricevo la lunghezza del contenuto del filelist.txt
-    if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) > 0) {
-        max_size = atoi(buff);
-        printf("\033[0;34mfile size:\033[0m %ld\n\n", max_size);
-        recvline = (char*)malloc(max_size);
-    } else {
-        fprintf(stderr, "errore: impossibile prelevare la lunghezza del filelist.txt.\n");
-        err = 1;
+    //Retrieving filelist.txt content dimension
+    while (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) < 0) {
+        if(check_failure("Error: couldn't retrieve length of filelist.txt.\n")){
+            continue;
+        }
+    }
+
+    max_size = atoi(buff);
+    printf("\033[0;34mFile size:\033[0m %ld\n\n", max_size);
+    if((recvline = (char*)malloc(max_size)) == NULL){
+        failure("Malloc() failed");
     }
     
     printf("\033[1;34m--- filelist.txt ---\033[0m\n");
     if ((n = recvfrom(sd, recvline, max_size, 0, (struct sockaddr*)&addr, &addrlen)) != -1) {
         recvline[n] = 0;
         if (puts(recvline) == EOF){
-            fprintf(stderr, "errore in puts");
-            err = 1;
+            perror("puts() failed");
+            return 1;
         }
     }
     
@@ -51,113 +46,154 @@ int request_list(int sd, struct sockaddr_in addr) // OK
     printf("\nrecvline freed.\n\n\n");
     
     if (n < 0) {
-        fprintf(stderr, "errore in read");
-        err = 1;
+        perror("read() failed");
+        return 1;
     }
     
-    return err;
+    return 0;
 }
 
-int request_get(int sd, struct sockaddr_in addr, char *filename) // OK
+int request_get(int sd, struct sockaddr_in addr, char *filename/*, char* extension*/) // OK
 {
     socklen_t addrlen = sizeof(addr);
     char buff[MAXLINE];
     char *recvline;
     size_t max_size;
     FILE *fp;
-    char *s = " ";
-    int err = 0;
-    int n, i;
+    int n;
     
-    // invia il filename al server
+    //Send the filename to get from the server
     if (sendto(sd, filename, strlen(filename), 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile inviare il filename al server");
-        err = 1;
+        fprintf(stderr, "Error: couldn't send the filename to the server.\n");
+        return 1;
     } else {
-        printf("filename inviato correttamente.\n");
+        printf("Filename correctly sent.\n");
     }
+
+    /*switch(extension){
+
+    	case "txt":
+    		get_textfile()
+    		break;
+    	case "jpg":
+			get_image()
+			break;
+    	case "mp3":
+			get_audio()
+			break;
+		default:
+			printf("File extension not recognized.\n");
+			return 1;
+    }*/
+
+    //get_textfile()
     
-    // prelevo la dimensione dello spazio da allocare
+    //Retrieve the dimension of the space to allocate
     if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) > 0) {
         max_size = atoi(buff);
-        recvline = (char*)malloc(max_size);
+        if((recvline = (char*)malloc(max_size)) == NULL){
+        	perror("Malloc() failed.");
+        	exit(EXIT_FAILURE);
+        }
     } else {
-        fprintf(stderr, "errore: impossibile prelevare la dimensione del file %s.\n", filename);
-        err = 1;
+        fprintf(stderr, "Error: couldn't retrieve the dimension of %s.\n", filename);
+        return 1;
     }
     
-    // Creo apro il file in scrittura
+    //Create and open the file to write on
     fp = fopen(filename, "w+");
     if (fp == NULL) {
-        fprintf(stderr, "errore: impossibile aprire il file %s", filename);
-        err = 1;
+        fprintf(stderr, "Error: couldn't open %s", filename);
+        free(recvline);
+        return 1;
     } else {
-        printf("file %s aperto correttamente.\n", filename);
+        printf("File %s correctly opened.\n", filename);
     }
     
-    // Ricevo i dati da inserire nel file
+    //Retrieve data to write on the file
     if ((n = recvfrom(sd, recvline, max_size, 0, (struct sockaddr*)&addr, &addrlen)) != -1) {
         recvline[n] = 0;
         if (fputs(recvline, fp) == EOF){
-            fprintf(stderr, "errore in fputs");
-            err = 1;
+            fprintf(stderr, "fputs() failed.");
+            return 1;
         }
     }
     
     free(recvline);
-    printf("recvline free.\n");
-    err = 0;
-    return err;
+    printf("recvline freed.\n");
+    return 0;
     
 }
 
-int request_put(int sd, struct sockaddr_in addr, char *filename)
+int request_put(int sd, struct sockaddr_in addr, char *filename/*, char* extension*/)
 {
-    int err = 0;
     socklen_t addrlen = sizeof(addr);
     char buff[MAXLINE];
     FILE *fp;
     size_t max_size;
     char *sendline;
     
-    // Invio il nome del file da aggiungere sul server
+    //Send the filename to add to the server
     if (sendto(sd, filename, strlen(filename), 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile inviare il filename al server.\n");
-        err = 1;
+        fprintf(stderr, "Error: couldn't send the filename to the server.\n");
+        return 1;
     } else {
-        printf("filename inviato correttamente al server.\n");
+        printf("Filename correctly sent.\n");
     }
     
-    // Apro il file e ne prelevo la dimensione
+    /*switch(extension){
+
+    	case "txt":
+    		put_textfile()
+    		break;
+    	case "jpg":
+			put_image()
+			break;
+    	case "mp3":
+			put_audio()
+			break;
+		default:
+			printf("File extension not recognized.\n");
+			return 1;
+    }
+
+    put_textfile()*/
+
+    //Get the file dimension
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        fprintf(stderr, "errore: impossibile aprire file %s.", filename);
-        err = 1;
+        fprintf(stderr, "Error: couldn't open %s.", filename);
+        return 1;
     } else {
-        printf("file %s aperto correttamente.\n", filename);
+        printf("File %s correctly opened.\n", filename);
     }
     
     fseek(fp, 0, SEEK_END);
     max_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    printf("file_size = %ld\n", max_size);
+    printf("File size = %ld\n", max_size);
     
-    // Invio la dimensione del contenuto del file
+    //Send the file dimension
     sprintf(buff, "%ld", max_size);
     if (sendto(sd, buff, strlen(buff), 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile inviare la dimensione del file.");
-        err = 1;
+        fprintf(stderr, "Error: couldn't send the dimension to the server.");
+        fclose(fp);
+        return 1;
     } else {
-        printf("dimensione del file inviata correttamente.\n");
+        printf("File dimension correctly sent.\n");
     }
     
-    /* invio il contenuto del file */
-    //alloco lo spazio necessario in sendline
+    /* SENDING FILE CONTENT */
+    //Alloc space
     sendline = (char*)malloc(max_size);
+    if(sendline == NULL){
+    	perror("Malloc() failed.");
+    	exit(EXIT_FAILURE);
+    }
     
-    //inserisco il contenuto del file in sendline
+    //Insert content in "sendline" variable
     char ch;
-    for (int i=0; i<max_size; i++) {
+    for (int i=0; i<(int)max_size; i++) {
         ch = fgetc(fp);
         sendline[i] = ch;
         if (ch == EOF) break;
@@ -167,106 +203,129 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     puts(sendline);
     printf("\n");
     
-    //invio al server
+    //Send content to server
     if (sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "errore: impossibile inviare il contenuto al server.");
-        err = 1;
+        fprintf(stderr, "Error: couldn't send file content to server.");
+        free(sendline);
+        fclose(fp);
+        return 1;
     } else {
-        printf("contenuto del file %s inviato correttamente al server.\n", filename);
+        printf("File %s correctly sent to the server.\n", filename);
     }
     
     fclose(fp);
     free(sendline);
     printf("sendline freed.\n");
-    return err;
+    return 0;
 }
 
 int main(int argc, char* argv[])
 {
-    int sockfd, n, idx;
+    int sockfd;
     struct sockaddr_in servaddr;
     char buff[MAXLINE];
     socklen_t addrlen = sizeof(servaddr);
-    int res1 = 0;
-    int res2 = 0;
-    int res3 = 0;
-    char *cmd, *tok;
-    char *filename;
+    int res = 0;
+    char *cmd, *tok, *filename/*, *ext*/;
     
-    // controllo sui parametri inseriti in linea di comando
+    //Check command line
     if (argc != 2) {
-        fprintf(stderr, "utilizzo: client_test <indirizzo ip server>");
-        exit(-1);
+        failure("Utilization: client_test <server IP>");
     }
     
-    // crea il socket
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        fprintf(stderr, "\033[0;31merrore in socket\033[0m");
-        exit(-1);
+    //Create socket
+    while ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        if(check_failure("\033[0;31mSocket() failed\033[0m")){
+            continue;
+        }
     }
     
-    // inizializzo i valori di indirizzo
+    //Initialize address values
     memset((void*)&servaddr, 0, addrlen);
     
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT); // assegna la porta del server
+    servaddr.sin_port = htons(SERV_PORT);
     if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0) {
-        fprintf(stderr, "errore in inet_pton.");
-        exit(-1);
+        failure("error in inet_pton.");
     }
     
-    // Legge dal socket fino a che non trova EOF
+    //Read from socket until EOF is found
     
     while (1) {
-        // scegliere un comando:
-        printf("\n\033[0;34mInserire un comando:\033[0m ");
+
+        //Send request
+        printf("\n\033[0;34mChoose an operation:\033[0m ");
         fgets(buff, sizeof(buff), stdin);
         
-        // inviare il comando al server
-        if (sendto(sockfd, buff, strlen(buff), 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
-            fprintf(stderr, "\033[0;31mimpossibile inviare il comando al server.\033[0m\n");
-            exit(-1);
-        } else {
-            printf("\n\033[0;32mcomando inviato con successo.\033[0m\n");
+        while (sendto(sockfd, buff, strlen(buff), 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
+            if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
+                continue;
+            }
         }
+            
+        printf("\n\033[0;32mInput successfully sent.\033[0m\n");
         
-        // prelevo il tipo di comando
+        //Retrieve command
         tok = strtok(buff, " \n");
         cmd = strdup(tok);
-        printf("\033[0;34mcomando selezionato:\033[0m %s\n", cmd);
+        printf("\033[0;34mInput selected:\033[0m %s\n", cmd);
         
         
         if (strcmp(cmd, "list") == 0) {
-            // eseguo comando list
-            res1 = request_list(sockfd, servaddr);
+
+            //Execute LIST
+            res = request_list(sockfd, servaddr);
+
         } else if (strcmp(cmd, "get") == 0) {
-            // eseguo comando get
+
+            //Execute GET
             tok = strtok(NULL, " \n");
+            if(tok == NULL){
+            	printf("To correctly get a file, insert also the name of the file!\n");
+            	continue;
+            }
             filename = strdup(tok);
-            printf("filename: %s\n", filename);
-            res2 = request_get(sockfd, servaddr, filename);
+            printf("Filename: %s\n", filename);
+
+            res = request_get(sockfd, servaddr, filename);
+
+            //Find the extension of the file
+            /*ext = strrchr(filename, '.');
+			if (!ext) {
+			    res = request_get(sockfd, servaddr, filename, ext); //no extension
+			} else {
+			    res = request_get(sockfd, servaddr, filename, ext+1);
+			}*/
+
         } else if (strcmp(cmd, "put") == 0) {
-            // effettuo comando put
+
+            //Execute PUT
             tok = strtok(NULL, " \n");
+            if(tok == NULL){
+            	printf("To correctly upload a file, insert also the name of the file!\n");
+            	continue;
+            }
             filename = strdup(tok);
-            printf("filename: %s\n", filename);
-            res3 = request_put(sockfd, servaddr, filename);
+            printf("Filename: %s\n", filename);
+
+            res = request_put(sockfd, servaddr, filename);
+
+            //Find the extension of the file
+            /*ext = strrchr(filename, '.');
+			if (!ext) {
+			    res = request_put(sockfd, servaddr, filename, ext); //no extension
+			} else {
+			    res = request_put(sockfd, servaddr, filename, ext+1);
+			}*/
+
         } else {
-            fprintf(stderr, "\033[0;31merrore: impossibile rilevare il comando.\033[0m\n");
-            exit(-1);
+            failure("\033[0;31mError: couldn't retrieve input.\033[0m\n");
         }
         
-        if (res1 == 1) {
-            fprintf(stderr, "\033[0;31merrore in client_list.\033[0m\n");
-            exit(-1);
-        } else if (res2 == 1) {
-            fprintf(stderr, "\033[0;31merrore in client_get.\033[0m\n");
-            exit(-1);
-        } else if (res3 == 1) {
-            fprintf(stderr, "\033[0;31merrore in client_put.\033[0m\n");
-            exit(-1);
+        if (res == 1) {
+            failure("\033[0;31mInput function error.\033[0m\n");
         } else {
-            printf("tutto ok.\n");
+            printf("OK.\n");
         }
         
         break;
