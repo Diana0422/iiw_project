@@ -41,4 +41,8 @@ extern void remove_client(Client**, int);
 
 extern int dispatch_client(Client*, struct sockaddr_in, int*);
 
+extern void clean_thread(Client**, struct sockaddr_in*, pthread_mutex_t*, int);
+
+//extern void print_list(Client*);
+
 #endif /* client_test_h */

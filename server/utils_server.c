@@ -63,7 +63,6 @@ void remove_client(Client **h, int thread){
 
     Client *prev;
     Client *curr;
-    Client *temp;
 
     prev = NULL;
     curr = *h;
@@ -71,8 +70,7 @@ void remove_client(Client **h, int thread){
     while(curr != NULL){
         if(curr->server == thread){
             if(prev == NULL){
-                temp = curr->next;
-                h = &temp;
+                *h = curr->next;
             }else{
                 prev->next = curr->next;
             }
@@ -80,15 +78,24 @@ void remove_client(Client **h, int thread){
             free(curr);
             break;
         }
+        prev = curr;
+        curr = curr->next;
     }
 }
+
+/*void print_list(Client *h){
+    printf("[");
+    while(h != NULL){
+        printf("T%d -> ", h->server);
+        h = h->next;
+    }
+    printf("NULL]\n");
+}*/
 
 int dispatch_client(Client* h, struct sockaddr_in address, int* server){
 
     Client *prev;
     Client *curr;
-
-    int count = 0;
 
     prev = NULL;
     curr = h;
@@ -97,11 +104,20 @@ int dispatch_client(Client* h, struct sockaddr_in address, int* server){
         prev = curr;
         curr = curr->next;
         if(address.sin_addr.s_addr == (prev->addr).sin_addr.s_addr){
-            *server = count;
+            *server = prev->server;
             return 1;
         }
-        count++;
     }
 
     return 0;
+}
+
+void clean_thread(Client **h, struct sockaddr_in *address, pthread_mutex_t* mux, int thread){
+
+    pthread_mutex_lock(mux);
+    remove_client(h, thread);
+    pthread_mutex_unlock(mux);
+
+    
+    memset((void*)address, 0, sizeof(*address));
 }

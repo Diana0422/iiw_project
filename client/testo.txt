@@ -1,2 +1,2 @@
 Ciao a tutti,
-questo è un file di testo creato per il progetto di Ingegneria di Internet e Web
+Questo è un file di prova per IIW.
