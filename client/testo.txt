@@ -1,2 +1,1 @@
-Ciao a tutti,
-Questo è un file di prova per IIW.
+Questo è testo.txt

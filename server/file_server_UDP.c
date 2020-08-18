@@ -57,6 +57,8 @@ void response_list(int sd, struct sockaddr_in addr)
     char *filename = "filelist.txt";
     size_t max_size;
       
+    printf("response_list started.\n"); 
+    
     fp = fopen(filename, "r");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s", filename);
@@ -117,14 +119,20 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     char *sendline;
     FILE *fp;
     size_t max_size;
-
+    
+    printf("response_get started.\n");
+    
+    printf("1\n");
+    
     fp = fopen(filename, "r");
+    printf("2\n");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s.", filename);
         return;
     } else {
         printf("File %s correctly opened.\n", filename);
     }
+    printf("3\n");
     
     //Retrieve the file dimension
     fseek(fp, 0, SEEK_END);
@@ -162,6 +170,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     } else {
         printf("File content correctly sent.\n");
     }
+ 
 
     free(sendline);
     printf("sendline freed.\n\n");
@@ -175,6 +184,8 @@ void response_put(char* filename, int server)
     size_t file_size;
     char *recvline;
     
+    printf("response_put started.\n");
+    
     //Open the file associated with the filename
     fp = fopen(filename, "w+");
     if (fp == NULL) {
@@ -186,6 +197,7 @@ void response_put(char* filename, int server)
     
     //Check if the file already exists in the server and if not create it
     pthread_mutex_lock(&file_mux);
+    printf("mutex file_mux locked. (3)\n");
     if (filelist_ctrl(filename)) {
         flp = fopen(filelist, "a+");
         if (flp == NULL) {
@@ -200,14 +212,17 @@ void response_put(char* filename, int server)
         fclose(flp);       
     } 
     pthread_mutex_unlock(&file_mux);
+    printf("mutex file_mux unlocked. (3)\n");
     
     //Retrieve file dimension from socket
     buf_clear(buff, MAXLINE);
   	
-  	pthread_mutex_lock(&put_avb[server]);
+    pthread_mutex_lock(&put_avb[server]);
+    printf("mutex put_avb[%d] locked.\n", server);
     strcpy(buff, put_msg[server]);
     buf_clear(put_msg[server], strlen(put_msg[server]));
     pthread_mutex_unlock(&put_free[server]);
+    printf("mutext put_free[%d] unlocked.\n", server);
     
     file_size = atoi(buff);
     if((recvline = (char*)malloc(file_size)) == NULL){
@@ -218,8 +233,10 @@ void response_put(char* filename, int server)
     //Retrieve file content from socket
 
     pthread_mutex_lock(&put_avb[server]);
+    printf("mutex put_avb[%d] locked.\n", server);
     recvline = strdup(put_msg[server]);
     pthread_mutex_unlock(&put_free[server]);
+    printf("mutex put_free[%d] unlocked.\n", server);
 
     //Write content on file
     printf("\n\n");
@@ -260,8 +277,10 @@ void* thread_service(void* p){
 
 		//Retrieve client address and request
 		pthread_mutex_lock(&list_mux);
+		printf("mutex list_mux locked (2).\n");
 		get_client(&cliaddr_head, tag, &address, buff);
 	    pthread_mutex_unlock(&list_mux);
+	    printf("mutex list_mux unlocked (2).\n");
 
 	    cmd = strtok(buff, " \n");
 	    printf("Selected request: %s\n", cmd);
@@ -366,8 +385,11 @@ int main(void)
 
 	for(i=0; i<THREAD_POOL; i++){
 		pthread_mutex_init(&put_free[i], 0);
+		printf("mutex put_free[%d] initialized.\n", i);
 		pthread_mutex_init(&put_avb[i], 0);
+		printf("mutex put_avb[%d] initialized.\n", i);
 		pthread_mutex_lock(&put_avb[i]);
+		printf("mutex put_avb[%d] locked.\n", i);
 	}
 
     //Create thread pool
@@ -379,10 +401,10 @@ int main(void)
             exit(-1);
         } 
     }
+    
+    printf("\033[0;34mWaiting for a request...\033[0m\n");
 
     while(1) {
-
-        printf("\033[0;34mWaiting for a request...\033[0m\n");
 
         buf_clear(buff, MAXLINE);
 
@@ -396,17 +418,21 @@ int main(void)
 	    if(dispatch_client(cliaddr_head, cliaddr, &thread)){
 	    	printf("Client already queued.\n");
 	    	pthread_mutex_lock(&put_free[thread]);
+	    	printf("mutex put_free[%d] locked.\n", thread);
 	    	put_msg[thread] = strdup(buff);
-	    	pthread_mutex_unlock(&put_avb[thread]);
+	    	pthread_mutex_unlock(&put_avb[thread]); // put_avb??
+	    	printf("mutex put_avb[%d] unlocked.\n", thread);
 
 	    }else{
 	    	printf("\033[0;34mReceived a new request.\033[0m\n");
 
 	        //Add new client address to list
 	        pthread_mutex_lock(&list_mux);
+	        printf("mutex list_mux locked.\n");
 	        insert_client(&cliaddr_head, cliaddr, buff);
 	        pthread_mutex_unlock(&list_mux);
-
+	        printf("mutex list_mux unlocked.\n");
+	       
 	        //Signal the serving threads 
 	        while(semop(sem_client, &ops, 1) == -1){
 		    	if(errno == EINTR){
@@ -416,7 +442,10 @@ int main(void)
 		    		exit(-1);
 		    	}
 			}
-		}	         
+		}
+		buf_clear(buff, MAXLINE);	
+		
+		printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
     }
     exit(0);
 }

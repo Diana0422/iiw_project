@@ -38,6 +38,8 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
         prev->next = new;
         new->next = curr;
     }
+    
+    printf("client insert.\n");
 }	
 
 void get_client(Client **h, int thread, struct sockaddr_in *address, char* message){
@@ -81,6 +83,8 @@ void remove_client(Client **h, int thread){
         prev = curr;
         curr = curr->next;
     }
+    
+    printf("client removed.\n");
 }
 
 /*void print_list(Client *h){
@@ -114,10 +118,14 @@ int dispatch_client(Client* h, struct sockaddr_in address, int* server){
 
 void clean_thread(Client **h, struct sockaddr_in *address, pthread_mutex_t* mux, int thread){
 
+    printf("cleaning thread %d.\n", thread);
+
     pthread_mutex_lock(mux);
     remove_client(h, thread);
     pthread_mutex_unlock(mux);
 
     
     memset((void*)address, 0, sizeof(*address));
+    
+    printf("thread %d clean.\n", thread);
 }
