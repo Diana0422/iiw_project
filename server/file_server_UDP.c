@@ -11,8 +11,8 @@
 #define MAXLINE 1024
 #define THREAD_POOL	10
 
-pthread_mutex_t list_mux = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t file_mux = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t list_mux;
+pthread_mutex_t file_mux;
 pthread_mutex_t put_free[THREAD_POOL];
 pthread_mutex_t put_avb[THREAD_POOL];
 
@@ -382,6 +382,11 @@ int main(void)
 
 	//Initialize client address list
 	cliaddr_head = NULL;
+
+    pthread_mutex_init(&list_mux, 0);
+	printf("mutex list_mux initialized.\n");
+	pthread_mutex_init(&file_mux, 0);
+	printf("mutex file_mux initialized.\n");
 
 	for(i=0; i<THREAD_POOL; i++){
 		pthread_mutex_init(&put_free[i], 0);
