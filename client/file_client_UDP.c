@@ -62,14 +62,6 @@ int request_get(int sd, struct sockaddr_in addr, char *filename/*, char* extensi
     FILE *fp;
     int n;
     
-    //Send the filename to get from the server
-    if (sendto(sd, filename, strlen(filename), 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send the filename to the server.\n");
-        return 1;
-    } else {
-        printf("Filename correctly sent.\n");
-    }
-
     /*switch(extension){
 
     	case "txt":
@@ -226,7 +218,7 @@ int main(int argc, char* argv[])
     char buff[MAXLINE];
     socklen_t addrlen = sizeof(servaddr);
     int res = 0;
-    char *cmd, *tok, *filename/*, *ext*/;
+    char *tok, *filename/*, *ext*/;
     
     //Check command line
     if (argc != 2) {
@@ -267,16 +259,15 @@ int main(int argc, char* argv[])
         
         //Retrieve command       
         tok = strtok(buff, " \n");
-        cmd = strdup(tok);
-        printf("\033[0;34mInput selected:\033[0m %s\n", cmd);
+        printf("\033[0;34mInput selected:\033[0m %s\n", tok);
         
         
-        if (strcmp(cmd, "list") == 0) {
+        if (strcmp(tok, "list") == 0) {
 
             //Execute LIST
             res = request_list(sockfd, servaddr);
 
-        } else if (strcmp(cmd, "get") == 0) {
+        } else if (strcmp(tok, "get") == 0) {
 
             //Execute GET
             tok = strtok(NULL, " \n");
@@ -297,7 +288,7 @@ int main(int argc, char* argv[])
 			    res = request_get(sockfd, servaddr, filename, ext+1);
 			}*/
 
-        } else if (strcmp(cmd, "put") == 0) {
+        } else if (strcmp(tok, "put") == 0) {
 
             //Execute PUT
             tok = strtok(NULL, " \n");

@@ -122,17 +122,13 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     
     printf("response_get started.\n");
     
-    printf("1\n");
-    
     fp = fopen(filename, "r");
-    printf("2\n");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s.", filename);
         return;
     } else {
         printf("File %s correctly opened.\n", filename);
     }
-    printf("3\n");
     
     //Retrieve the file dimension
     fseek(fp, 0, SEEK_END);
@@ -421,7 +417,7 @@ int main(void)
 
 	    //Check if the client is still being served
 	    if(dispatch_client(cliaddr_head, cliaddr, &thread)){
-	    	printf("Client already queued.\n");
+	    	printf("\033[0;34Client already queued!\033[0m\n");
 	    	pthread_mutex_lock(&put_free[thread]);
 	    	printf("mutex put_free[%d] locked.\n", thread);
 	    	put_msg[thread] = strdup(buff);
