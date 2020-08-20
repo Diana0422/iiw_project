@@ -267,7 +267,7 @@ void* thread_service(void* p){
 	    		continue;
 	    	}else{
 	    		fprintf(stderr, "semop() failed");
-	    		exit(EXIT_FAILURE);
+	    		pthread_exit((void*)-1);
 	    	}
 		}
 
@@ -308,12 +308,13 @@ void* thread_service(void* p){
 	        buf_clear(put_msg[tag], strlen(put_msg[tag]));
 	    } else {
 	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
-	        exit(EXIT_FAILURE);
+            clean_thread(&cliaddr_head, &address, &list_mux, tag);
+            continue;
 	    }
 
 	    clean_thread(&cliaddr_head, &address, &list_mux, tag);
 	}
-	exit(0);
+	pthread_exit(0);
 }
 
 int main(void)
@@ -386,11 +387,11 @@ int main(void)
 
 	for(i=0; i<THREAD_POOL; i++){
 		pthread_mutex_init(&put_free[i], 0);
-		printf("mutex put_free[%d] initialized.\n", i);
+		//printf("mutex put_free[%d] initialized.\n", i);
 		pthread_mutex_init(&put_avb[i], 0);
-		printf("mutex put_avb[%d] initialized.\n", i);
+		//printf("mutex put_avb[%d] initialized.\n", i);
 		pthread_mutex_lock(&put_avb[i]);
-		printf("mutex put_avb[%d] locked.\n", i);
+		//printf("mutex put_avb[%d] locked.\n", i);
 	}
 
     //Create thread pool
@@ -417,22 +418,24 @@ int main(void)
 
 	    //Check if the client is still being served
 	    if(dispatch_client(cliaddr_head, cliaddr, &thread)){
-	    	printf("\033[0;34Client already queued!\033[0m\n");
+
+	    	printf("\033[0;34mClient already queued!\033[0m\n");
 	    	pthread_mutex_lock(&put_free[thread]);
-	    	printf("mutex put_free[%d] locked.\n", thread);
+	    	//printf("mutex put_free[%d] locked.\n", thread);
 	    	put_msg[thread] = strdup(buff);
+            printf("PUT_MSG[%d] = %s\n", thread, put_msg[thread]);
 	    	pthread_mutex_unlock(&put_avb[thread]); // put_avb??
-	    	printf("mutex put_avb[%d] unlocked.\n", thread);
+	    	//printf("mutex put_avb[%d] unlocked.\n", thread);
 
 	    }else{
 	    	printf("\033[0;34mReceived a new request.\033[0m\n");
 
 	        //Add new client address to list
 	        pthread_mutex_lock(&list_mux);
-	        printf("mutex list_mux locked.\n");
+	        //printf("mutex list_mux locked.\n");
 	        insert_client(&cliaddr_head, cliaddr, buff);
 	        pthread_mutex_unlock(&list_mux);
-	        printf("mutex list_mux unlocked.\n");
+	        //printf("mutex list_mux unlocked.\n");
 	       
 	        //Signal the serving threads 
 	        while(semop(sem_client, &ops, 1) == -1){

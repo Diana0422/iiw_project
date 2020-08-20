@@ -39,7 +39,8 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
         new->next = curr;
     }
     
-    printf("client insert.\n");
+    printf("Client inserted: ");
+    print_list(*h);
 }	
 
 void get_client(Client **h, int thread, struct sockaddr_in *address, char* message){
@@ -56,6 +57,10 @@ void get_client(Client **h, int thread, struct sockaddr_in *address, char* messa
             prev->server = thread;
             *address = prev->addr;
             strcpy(message, prev->buff);
+
+            printf("Client acquired: ");
+            print_list(*h);
+            
             return;
         }
     }
@@ -84,17 +89,19 @@ void remove_client(Client **h, int thread){
         curr = curr->next;
     }
     
-    printf("client removed.\n");
+    printf("Client removed: ");
+    print_list(*h);
+    printf("\n");
 }
 
-/*void print_list(Client *h){
+void print_list(Client *h){
     printf("[");
     while(h != NULL){
         printf("T%d -> ", h->server);
         h = h->next;
     }
     printf("NULL]\n");
-}*/
+}
 
 int dispatch_client(Client* h, struct sockaddr_in address, int* server){
 
@@ -107,7 +114,7 @@ int dispatch_client(Client* h, struct sockaddr_in address, int* server){
     while(curr != NULL){
         prev = curr;
         curr = curr->next;
-        if(address.sin_addr.s_addr == (prev->addr).sin_addr.s_addr){
+        if((address.sin_addr.s_addr == (prev->addr).sin_addr.s_addr) && (prev->server != -1)) {
             *server = prev->server;
             return 1;
         }
