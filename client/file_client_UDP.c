@@ -63,6 +63,7 @@ int request_get(int sd, struct sockaddr_in addr, char *filename/*, char* extensi
     int n;
     
     /*switch(extension){
+    /*switch(extension){
 
     	case "txt":
     		get_textfile()
@@ -109,6 +110,8 @@ int request_get(int sd, struct sockaddr_in addr, char *filename/*, char* extensi
             fprintf(stderr, "fputs() failed.");
             return 1;
         }
+        //write_file(recvline, fp, max_size); //wrap with semaphore or mutex?
+        
     }
     
     free(recvline);
@@ -126,12 +129,12 @@ int request_put(int sd, struct sockaddr_in addr, char *filename/*, char* extensi
     char *sendline;
     
     //Send the filename to add to the server
-    /*if (sendto(sd, filename, strlen(filename), 0, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (sendto(sd, filename, strlen(filename), 0, (struct sockaddr*)&addr, addrlen) == -1) {
         fprintf(stderr, "Error: couldn't send the filename to the server.\n");
         return 1;
     } else {
         printf("Filename correctly sent.\n");
-    }*/
+    }
     
     /*switch(extension){
 
@@ -190,6 +193,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename/*, char* extensi
         sendline[i] = ch;
         if (ch == EOF) break;
     }
+    //read_file(sendline, fp, max_size);
     
     printf("\n\n");
     puts(sendline);
