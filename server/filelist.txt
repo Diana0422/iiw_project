@@ -1,4 +1,0 @@
-testo1.txt
-testo.txt
-diana.txt
-lorenzo.txt

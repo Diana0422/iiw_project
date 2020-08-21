@@ -10,7 +10,8 @@ void child(char* IP, int num){
 	args[0] = "./client";
 	args[1] = strdup(IP);
 
-	int i = rand()%3;
+	//int i = rand()%3;
+	int i = 0;
 	switch(i){
 		case 0:
 			args[2] = "list";
@@ -27,7 +28,7 @@ void child(char* IP, int num){
 
 	args[3] = (char*)0; 
 
-	//printf("Child starting a process client with: %s %s %s\n", args[0], args[1], args[2]);
+	printf("Child starting a process client with: %s %s %s\n", args[0], args[1], args[2]);
 	if(execve("./client", args, NULL) == -1){
 		perror("execve() failed");
 		exit(0);

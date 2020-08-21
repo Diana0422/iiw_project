@@ -23,11 +23,11 @@ char* put_msg[THREAD_POOL] = {"\0"};
 
 Client *cliaddr_head;
 
-int filelist_ctrl(char* filename)
+int filelist_ctrl(char* filename) //control if the filename is already present in the filelist
 {
     FILE *fp;
     char s[MAXLINE];
-    
+
     fp = fopen("filelist.txt", "r");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open filelist.txt");
@@ -56,23 +56,48 @@ void response_list(int sd, struct sockaddr_in addr)
     FILE *fp;
     char *filename = "filelist.txt";
     size_t max_size;
+    DIR* dirp;
+    struct dirent* pdirent;
       
-    printf("response_list started.\n"); 
+    printf("response_list started.\n");
     
-    fp = fopen(filename, "r");
+    fp = fopen(filename, "w+");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s", filename);
         return;
     } else {
-        printf("%s correctly opened.\n", filename);
+    	printf("%s correctly opened.\n", filename);
     }
     
+    // Ensure we can open directory
+    dirp = opendir("files");
+    if (dirp == NULL) {
+    	printf("cannot open directory %s.\n", "files");
+    	exit(-1);
+    }
+    
+    // Process each entry in the directory
+    printf("******* FILES *******\n");
+    while ((pdirent = readdir(dirp)) != NULL) {
+    	printf("%s\n", pdirent->d_name);
+    	fputs(pdirent->d_name, fp);
+    	fputs("\n", fp);
+    } 
+    
     //Retrieve file dimension
+    
     fseek(fp, 0, SEEK_END);
     max_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     
+    
     //Send file dimension
+    if((sendline = (char*) malloc(max_size)) == NULL){
+        perror("Malloc() failed");
+        exit(-1);
+    }
+ 
+    
     buf_clear(buff, MAXLINE);
     sprintf(buff, "%ld", max_size);
     printf("File size: %ld\n", max_size);
@@ -85,11 +110,7 @@ void response_list(int sd, struct sockaddr_in addr)
     }
     
     /* Send file content */
-    if((sendline = (char*) malloc(max_size)) == NULL){
-        perror("Malloc() failed");
-        exit(-1);
-    }
-    
+   
     //Write content on a buffer
     char ch;
     for (int i=0; i<(int)max_size; i++) {
@@ -97,6 +118,7 @@ void response_list(int sd, struct sockaddr_in addr)
         sendline[i] = ch;
         if (ch == EOF) break;
     }
+ 
     
     //Send the content to the client
     if(sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {
@@ -108,6 +130,13 @@ void response_list(int sd, struct sockaddr_in addr)
     }
     
     free(sendline);
+    if (remove("filelist.txt") == 0) {
+    	printf("File %s removed successfully!.\n", "filelist.txt");
+    } else {
+    	fprintf(stderr, "Error: unable to delete the file.\n");
+    	return;
+    }
+    
     printf("sendline freed.\n\n"); 
 }
 
@@ -119,10 +148,14 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     char *sendline;
     FILE *fp;
     size_t max_size;
+    char path[strlen("files/")+strlen(filename)];
     
     printf("response_get started.\n");
     
-    fp = fopen(filename, "r");
+    strcat(path, "files/");
+    strcat(path, filename);
+    
+    fp = fopen(path, "r");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s.", filename);
         return;
@@ -172,18 +205,22 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     printf("sendline freed.\n\n");
 }
 
+
 void response_put(char* filename, int server)
 {
     char buff[MAXLINE];
-    FILE *fp, *flp;
-    char *filelist = "filelist.txt";
+    FILE *fp;
+    char path[strlen("files/")+strlen(filename)];
     size_t file_size;
     char *recvline;
     
     printf("response_put started.\n");
     
+    strcat(path, "files/");
+    strcat(path, filename);
+    
     //Open the file associated with the filename
-    fp = fopen(filename, "w+");
+    fp = fopen(path, "w+");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open file %s", filename);
         return;
@@ -191,7 +228,7 @@ void response_put(char* filename, int server)
         printf("File %s correctly opened.\n", filename);
     }
     
-    //Check if the file already exists in the server and if not create it
+    /*//Check if the file already exists in the server and if not create it
     pthread_mutex_lock(&file_mux);
     printf("mutex file_mux locked. (3)\n");
     if (filelist_ctrl(filename)) {
@@ -208,7 +245,7 @@ void response_put(char* filename, int server)
         fclose(flp);       
     } 
     pthread_mutex_unlock(&file_mux);
-    printf("mutex file_mux unlocked. (3)\n");
+    printf("mutex file_mux unlocked. (3)\n");*/
     
     //Retrieve file dimension from socket
     buf_clear(buff, MAXLINE);
@@ -238,7 +275,13 @@ void response_put(char* filename, int server)
     printf("\n\n");
     puts(recvline);
     printf("\n");
-    fputs(recvline, fp);
+    
+    char ch;
+    for (int i=0; i<(int)file_size; i++) {
+    	ch = recvline[i];
+        fputc(ch, fp);
+        if (ch == EOF) break;
+    }
     fclose(fp);
     
     free(recvline);
@@ -429,13 +472,15 @@ int main(void)
 
 	    }else{
 	    	printf("\033[0;34mReceived a new request.\033[0m\n");
-
+		
 	        //Add new client address to list
 	        pthread_mutex_lock(&list_mux);
 	        //printf("mutex list_mux locked.\n");
 	        insert_client(&cliaddr_head, cliaddr, buff);
 	        pthread_mutex_unlock(&list_mux);
 	        //printf("mutex list_mux unlocked.\n");
+	        
+	        print_list(cliaddr_head); // print client queue
 	       
 	        //Signal the serving threads 
 	        while(semop(sem_client, &ops, 1) == -1){
@@ -445,10 +490,11 @@ int main(void)
 		    		fprintf(stderr, "semop() failed");
 		    		exit(-1);
 		    	}
-			}
 		}
+	    }
 		buf_clear(buff, MAXLINE);	
 		
+		//sleep(4); // added in order to test if the concurrency of clients works.
 		printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
     }
     exit(0);

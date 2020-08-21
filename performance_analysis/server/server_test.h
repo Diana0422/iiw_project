@@ -33,7 +33,7 @@ typedef struct node{
 
 extern void buf_clear(char*, int);
 
-extern void insert_client(Client**, struct sockaddr_in, char*);
+extern void insert_client(Client**, struct sockaddr_in, char*, int*);
 
 extern void get_client(Client**, int, struct sockaddr_in*, char*);
 

@@ -23,6 +23,9 @@ char* put_msg[THREAD_POOL] = {"\0"};
 
 Client *cliaddr_head;
 
+int served = 0;
+int num_clients;
+
 int filelist_ctrl(char* filename)
 {
     FILE *fp;
@@ -98,6 +101,8 @@ void response_list(int sd, struct sockaddr_in addr)
     
     free(sendline);
     printf("response_list finished.\n");
+    served++;
+    printf("served %d/%d clients.\n", served, num_clients);
 }
 
 
@@ -152,6 +157,8 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
 
     free(sendline);
     printf("response_get finished.\n\n");
+    served++;
+    printf("served %d/%d clients.\n", served, num_clients);
 }
 
 void response_put(char* filename, int server)
@@ -216,6 +223,8 @@ void response_put(char* filename, int server)
     
     free(recvline);
     printf("response_put finished.\n\n");
+    served++;
+    printf("served %d/%d clients.\n", served, num_clients);
 }
    
 void* thread_service(void* p){
@@ -304,6 +313,8 @@ int main(void)
     struct sockaddr_in servaddr;
     socklen_t cliaddrlen = sizeof(cliaddr);
     socklen_t servaddrlen = sizeof(servaddr);
+    
+    num_clients = 0;
       
     //Create listening socket
     if ((listensd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -398,7 +409,7 @@ int main(void)
 
 	        //Add new client address to list
 	        pthread_mutex_lock(&list_mux);
-	        insert_client(&cliaddr_head, cliaddr, buff);
+	        insert_client(&cliaddr_head, cliaddr, buff, &num_clients);
 	        pthread_mutex_unlock(&list_mux);
 	        
             buf_clear(buff, MAXLINE);
@@ -414,7 +425,13 @@ int main(void)
 			}
 		}
 
-        buf_clear(buff, MAXLINE);															         
+        buf_clear(buff, MAXLINE);
+        
+        if (num_clients == served) {
+        	printf("variables reinitialized.\n");
+        	num_clients = 0;
+        	served = 0;
+        }														         
     }
     exit(0);
 }

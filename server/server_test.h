@@ -23,6 +23,7 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
+#include <dirent.h>
 
 typedef struct node{
 	struct sockaddr_in addr;

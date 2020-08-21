@@ -10,6 +10,7 @@
 #include "client_test.h"
 
 #define SERV_PORT 5193
+#define DIR_PATH files
 
 int request_list(int sd, struct sockaddr_in addr) 
 {

@@ -7,7 +7,7 @@ void buf_clear(char *buffer, int dim)
     for (int i=0; i<dim; i++) buffer[i] = '\0';
 }
 
-void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
+void insert_client(Client **h, struct sockaddr_in cli_addr, char* message, int* num_cli){
     
     Client *new;
     if((new = (Client*)malloc(sizeof(Client))) == NULL){
@@ -40,6 +40,8 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
     }
     
     printf("Client inserted: ");
+    (*num_cli)++;
+    printf("Clients in queue: %d.\n", *num_cli);
     print_list(*h);
 }	
 
