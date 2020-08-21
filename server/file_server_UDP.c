@@ -23,6 +23,13 @@ char* put_msg[THREAD_POOL] = {"\0"};
 
 Client *cliaddr_head;
 
+
+/*
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ LIST OPERATION
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ */
+
 int filelist_ctrl(char* filename) //control if the filename is already present in the filelist
 {
     FILE *fp;
@@ -47,6 +54,7 @@ int filelist_ctrl(char* filename) //control if the filename is already present i
     
     return 1;
 }
+
 
 void response_list(int sd, struct sockaddr_in addr)
 {
@@ -141,6 +149,16 @@ void response_list(int sd, struct sockaddr_in addr)
 }
 
 
+
+
+
+/*
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ GET OPERATION
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ */
+
+
 void response_get(int sd, struct sockaddr_in addr, char* filename)
 {
     socklen_t addrlen = sizeof(addr);
@@ -149,6 +167,8 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     FILE *fp;
     size_t max_size;
     char path[strlen("files/")+strlen(filename)];
+    int n;
+    ssize_t read_size;
     
     printf("response_get started.\n");
     
@@ -184,26 +204,52 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         exit(-1);
     }
     
-    char ch;
+    /*char ch;
     for (int i=0; i<(int)max_size; i++) {
         ch = fgetc(fp);
         sendline[i] = ch;
         if (ch == EOF) break;
+    }*/
+    
+    
+    while(!feof(fp)) {
+      //Read from the file into our send buffer
+      read_size = fread(sendline, 1, max_size-1, fp);
+      printf("Image size read: %ld\n", read_size);
+      //Send data through our socket 
+      do{
+        n = sendto(sd, sendline, read_size, 0, (struct sockaddr*)&addr, addrlen);  
+        printf("%d bytes sent to client.\n", n);
+        if (n == -1) {
+        	fprintf(stderr, "Error: couldn't send data.\n");
+        	return;
+        }
+      }while (n < 0);
     }
     
-    //Send the file to the client
+    /*//Send the file to the client
     if (sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {
         fprintf(stderr, "Error: couldn't send the file content.\n");
         free(sendline);
         return;
     } else {
         printf("File content correctly sent.\n");
-    }
+    }*/
  
 
     free(sendline);
+    fclose(fp);
     printf("sendline freed.\n\n");
 }
+
+
+
+
+/*
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ PUT OPERATION
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ */
 
 
 void response_put(char* filename, int server)
@@ -287,7 +333,15 @@ void response_put(char* filename, int server)
     free(recvline);
     printf("recvline freed.\n");
 }
-   
+
+
+
+/*
+ ----------------------------------------------------------------------------------------------------------------------------------------------
+ MAIN & THREAD HANDLER
+ ----------------------------------------------------------------------------------------------------------------------------------------------
+ */
+    
 void* thread_service(void* p){
 
 	struct sembuf oper;
