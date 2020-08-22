@@ -120,7 +120,7 @@ int dispatch_client(Client* h, struct sockaddr_in address, int* server){
     while(curr != NULL){
         prev = curr;
         curr = curr->next;
-        if((address.sin_addr.s_addr == (prev->addr).sin_addr.s_addr) && (prev->server != -1)){
+        if((address.sin_addr.s_addr == (prev->addr).sin_addr.s_addr) && (address.sin_port == (prev->addr).sin_port)){
             *server = prev->server;
             return 1;
         }
