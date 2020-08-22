@@ -10,6 +10,7 @@
 #define SERV_PORT 5193
 #define MAXLINE 1024
 #define THREAD_POOL	10
+#define MAX_DGRAM_SIZE 65505
 
 pthread_mutex_t list_mux;
 pthread_mutex_t file_mux;
@@ -203,6 +204,19 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         perror("Malloc() failed.");
         exit(-1);
     }
+
+    while(!feof(fp)) {
+        //Read from the file into our send buffer
+        read_size = fread(sendline, 1, MAX_DGRAM_SIZE, fp);
+        printf("Image size read: %ld\n", read_size);
+        //Send data through our socket 
+        //printf("%d bytes sent to client.\n", n);
+        if ((n = sendto(sd, sendline, read_size, 0, (struct sockaddr*)&addr, addrlen)) == -1) {
+            fprintf(stderr, "Error: couldn't send data.\n");
+            return;
+        }
+        sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
+    }
     
     /*char ch;
     for (int i=0; i<(int)max_size; i++) {
@@ -212,7 +226,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     }*/
     
     
-    while(!feof(fp)) {
+    /*while(!feof(fp)) {
       //Read from the file into our send buffer
       read_size = fread(sendline, 1, max_size-1, fp);
       printf("Image size read: %ld\n", read_size);
@@ -225,7 +239,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         	return;
         }
       }while (n < 0);
-    }
+    }*/
     
     /*//Send the file to the client
     if (sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {

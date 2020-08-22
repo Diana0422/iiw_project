@@ -11,6 +11,7 @@
 
 #define SERV_PORT 5193
 #define DIR_PATH files
+#define MAX_DGRAM_SIZE 65505
 
 /* 
  ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -69,7 +70,7 @@ int request_list(int sd, struct sockaddr_in addr) // OK
  */
  
 
-int get_textfile(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, char* recvline, char* filename) // OK
+/*int get_textfile(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, char* recvline, char* filename) // OK
 {
     size_t max_size;
     FILE* fp;
@@ -165,7 +166,7 @@ int get_image(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, ch
         	bytes += putc(ch, picp);
         	if (ch == EOF) break;
     	}
-	printf("bytes written: %d\n", bytes);*/
+	printf("bytes written: %d\n", bytes);
 	
 	if (write_size != (int)max_size) {
 		printf("Something's wrong.\n");
@@ -185,7 +186,7 @@ int request_get(int sd, struct sockaddr_in addr, char *filename, char* extension
     
     if ((strcmp(extension, "txt") == 0) | (strcmp(extension, "png") == 0)) {
     	type = 0;
-    } else if ((strcmp(extension, "jpg") == 0) /*| (strcmp(extension, "png") == 0)*/) {
+    } else if ((strcmp(extension, "jpg") == 0) | (strcmp(extension, "png") == 0)) {
     	type = 1;
     } else if (strcmp(extension, "mp3") == 0) {
     	type = 2;
@@ -211,9 +212,60 @@ int request_get(int sd, struct sockaddr_in addr, char *filename, char* extension
     }
     
     return 0;
+}*/
+
+int request_get(int sd, struct sockaddr_in addr, char* filename)
+{
+    FILE *fp;
+    socklen_t addrlen = sizeof(addr);
+    size_t max_size;
+    ssize_t write_size = 0;
+    char buff[MAXLINE]; 
+    char* recvline;
+    int n, sum = 0;
+
+    //Open the file to write on
+    fp = fopen(filename, "w+");
+    if (fp == NULL) {
+        fprintf(stderr, "Error: cannot open file %s.\n", filename);
+        return 1;
+    } else {
+        printf("File %s successfully opened!\n", filename);
+    }   
+    
+    //Retrive the dimension of the file to allocate
+    if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) > 0) {
+        max_size = atoi(buff);
+        printf("File size: %ld\n", max_size);
+        if ((recvline = (char*)malloc(max_size)) == NULL) {
+            perror("Malloc() failed.\n");
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        fprintf(stderr, "Error: couldn't retrieve dimension of file %s", filename);
+        return 1;
+    } 
+    
+    while(sum < (int)max_size){
+        /* Receive data in chunks of 1024 bytes */
+        if ((n = recvfrom(sd, recvline, max_size, 0, (struct sockaddr*)&addr, &addrlen)) == -1) {
+            perror("Errore: couldn't read file content.\n");
+            exit(EXIT_FAILURE);
+        } else {
+            sum += n;
+            printf("Bytes read: %d\n", sum);
+        }
+
+        // Convert byte array to image
+        write_size += fwrite(recvline, 1, n, fp);
+    }
+      
+    printf("Bytes written: %d\n", (int)max_size);
+    fclose(fp);
+    free(recvline);
+    printf("Done.\n"); 
+    return 0;
 }
-
-
 
 
 /* 
@@ -475,15 +527,15 @@ int main(int argc, char* argv[])
             filename = strdup(tok);
             printf("Filename: %s\n", filename);
 
-            //res = request_get(sockfd, servaddr, filename);
+            res = request_get(sockfd, servaddr, filename);
 
             //Find the extension of the file
-            ext = strrchr(filename, '.');
+            /*ext = strrchr(filename, '.');
 	    if (!ext) {
 	    	res = request_get(sockfd, servaddr, filename, ext); //no extension
 	    } else {
             	res = request_get(sockfd, servaddr, filename, ext+1);
-	    }
+	    }*/
 
         } else if (strcmp(tok, "put") == 0) {
 
