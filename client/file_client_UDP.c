@@ -45,6 +45,7 @@ int request_list(int sd, struct sockaddr_in addr) // OK
     if ((n = recvfrom(sd, recvline, max_size, 0, (struct sockaddr*)&addr, &addrlen)) != -1) {
         recvline[n] = 0;
         if (puts(recvline) == EOF){
+            free(recvline);
             perror("puts() failed");
             return 1;
         }
@@ -159,7 +160,7 @@ int get_image(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, ch
 	
 	
 	//Insert content in "sendline" variable
-    	/*char ch;
+    	char ch;
     	int bytes = 0;
     	for (int i=0; i<(int)max_size; i++) {
         	ch = recvline[i];
@@ -274,7 +275,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int put_textfile(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, char* sendline, char* filename) 
+/*int put_textfile(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, char* sendline, char* filename) 
 {
 	size_t max_size;
 	FILE* fp;	
@@ -303,7 +304,7 @@ int put_textfile(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff,
         	printf("File dimension correctly sent.\n");
     	}
     
-    	/* SENDING FILE CONTENT */
+    	// SENDING FILE CONTENT
     	//Allocate space
     	sendline = (char*)malloc(max_size);
     	if(sendline == NULL){
@@ -401,51 +402,67 @@ int put_image(int sd, struct sockaddr_in addr, socklen_t addrlen, char* buff, ch
 	printf("Done.\n"); 
 	return 0;
 	
-}
+}*/
 
 
-int request_put(int sd, struct sockaddr_in addr, char *filename, char* extension)
+int request_put(int sd, struct sockaddr_in addr, char *filename)
 {
+    FILE *fp;
     socklen_t addrlen = sizeof(addr);
+    size_t max_size;
+    ssize_t read_size;
+    int n;
     char buff[MAXLINE];
-    char *sendline = NULL;
-    int type;
+    char* sendline;
     
-    //Send the filename to add to the server
-    if (sendto(sd, filename, strlen(filename), 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send the filename to the server.\n");
+    //Open the image file
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "Error: cannot open file %s.\n", filename);
         return 1;
     } else {
-        printf("Filename correctly sent.\n");
-    }
+        printf("File %s successfully opened!\n", filename);
+    }   
     
-    if (strcmp(extension, "txt") == 0) {
-    	type = 0;
-    } else if ((strcmp(extension, "jpg") == 0) | (strcmp(extension, "png") == 0)) {
-    	type = 1;
-    } else if (strcmp(extension, "mp3") == 0) {
-    	type = 2;
+    // Retrive the dimension of the file to allocate
+    fseek(fp, 0, SEEK_END);
+    max_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    printf("File size = %ld\n", max_size);
+        
+    // Send the dimension to the server
+    sprintf(buff, "%ld", max_size);
+    if (sendto(sd, buff, strlen(buff), 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the dimension to the server.");
+        fclose(fp);
+        return 1;
     } else {
-    	printf("File extension not expected.\n");
-	return 1;
+        printf("File dimension correctly sent.\n");
     }
-    
-    switch(type){
-
-    	case 0:
-    			put_textfile(sd, addr, addrlen, buff, sendline, filename);
-    			break;
-    	case 1:
-			put_image(sd, addr, addrlen, buff, sendline, filename);
-			break;
-    	case 2:
-			//put_audio();
-			break;
-	default:
-			printf("File extension not recognized.\n");
-			return 1;
+        
+    //Allocate space
+    sendline = (char*)malloc(max_size);
+    if(sendline == NULL){
+        perror("Malloc() failed.");
+        exit(EXIT_FAILURE);
+    }
+        
+    while(!feof(fp)) {
+        //Read from the file into our send buffer
+        read_size = fread(sendline, 1, MAX_DGRAM_SIZE, fp);
+        printf("File size read: %ld\n", read_size);
+        //Send data through our socket 
+        //printf("%d bytes sent to client.\n", n);
+        if ((n = sendto(sd, sendline, read_size, 0, (struct sockaddr*)&addr, addrlen)) == -1) {
+            fprintf(stderr, "Error: couldn't send data.\n");
+            return 1;
+        }
+        sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
     }
 
+    free(sendline);
+    fclose(fp);
+    printf("Done.\n"); 
     return 0;
 }
 
@@ -467,7 +484,7 @@ int main(int argc, char* argv[])
     char buff[MAXLINE];
     socklen_t addrlen = sizeof(servaddr);
     int res = 0;
-    char *tok, *filename, *ext;
+    char *tok, *filename;
     
     //Check command line
     if (argc != 2) {
@@ -548,15 +565,15 @@ int main(int argc, char* argv[])
             filename = strdup(tok);
             printf("Filename: %s\n", filename);
 
-            //res = request_put(sockfd, servaddr, filename);
+            res = request_put(sockfd, servaddr, filename);
 
             //Find the extension of the file
-            ext = strrchr(filename, '.');
+            /*ext = strrchr(filename, '.');
 	    if (!ext) {
 	    	res = request_put(sockfd, servaddr, filename, ext); //no extension
 	    } else {
 	    	res = request_put(sockfd, servaddr, filename, ext+1);
-	    }
+	    }*/
 	    
 
         } else {
