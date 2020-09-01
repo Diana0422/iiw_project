@@ -30,33 +30,7 @@ Client *cliaddr_head;
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-/*int filelist_ctrl(char* filename) //control if the filename is already present in the filelist
-{
-    FILE *fp;
-    char s[MAXLINE];
-
-    fp = fopen("filelist.txt", "r");
-    if (fp == NULL) {
-        fprintf(stderr, "Error: couldn't open filelist.txt");
-        return 0;
-    } else {
-        printf("filelist.txt correctly opened.\n");
-    }
-    printf("\n");
-    while (fgets(s, strlen(filename)+1, fp)) {
-        //printf("Data from filelist.txt: %s\n", s);
-        //printf("strcmp = %d\n", strncmp(filename, s, strlen(filename)));
-        if (strncmp(filename, s, strlen(filename)) == 0) {
-            return 0;
-        }
-    }
-    fclose(fp);
-    
-    return 1;
-}*/
-
-
-void response_list(int sd, struct sockaddr_in addr)
+/*void response_list(int sd, struct sockaddr_in addr)
 {
     socklen_t addrlen = sizeof(addr);
     char buff[MAXLINE];
@@ -93,7 +67,6 @@ void response_list(int sd, struct sockaddr_in addr)
     } 
     
     //Retrieve file dimension
-    
     fseek(fp, 0, SEEK_END);
     max_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
@@ -104,8 +77,7 @@ void response_list(int sd, struct sockaddr_in addr)
         perror("Malloc() failed");
         exit(-1);
     }
- 
-    
+   
     buf_clear(buff, MAXLINE);
     sprintf(buff, "%ld", max_size);
     printf("File size: %ld\n", max_size);
@@ -117,8 +89,6 @@ void response_list(int sd, struct sockaddr_in addr)
         printf("Dimension of %s correctly sent.\n", filename);
     }
     
-    /* Send file content */
-   
     //Write content on a buffer
     char ch;
     for (int i=0; i<(int)max_size; i++) {
@@ -146,11 +116,48 @@ void response_list(int sd, struct sockaddr_in addr)
     }
     
     printf("sendline freed.\n\n"); 
+}*/
+
+void response_list(int sd, struct sockaddr_in addr)
+{
+    socklen_t addrlen = sizeof(addr);
+    char buff[MAXLINE];
+    DIR* dirp;
+    struct dirent* pdirent;
+      
+    printf("response_list started.\n");
+    
+    // Ensure we can open directory
+    dirp = opendir("files");
+    if (dirp == NULL) {
+        perror("Cannot open directory");
+        exit(-1);
+    }
+    
+    // Process each entry in the directory
+    //printf("******* FILES *******\n");
+    while ((pdirent = readdir(dirp)) != NULL) {
+        //printf("%s\n", pdirent->d_name);
+        if(!(strcmp(pdirent->d_name, ".") && strcmp(pdirent->d_name, ".."))){ //Ignore the current and parent directory
+            continue;
+        }
+
+        strcpy(buff, pdirent->d_name);
+        if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+            fprintf(stderr, "Error: couldn't send the filename.\n");
+            return;
+        } else {
+            printf("Filename %s correctly sent.\n", buff);
+        }
+
+        buf_clear(buff, MAXLINE);
+    } 
+
+    if (sendto(sd, NULL, 0, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the filename.\n");
+        return;
+    }
 }
-
-
-
-
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -207,7 +214,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     while(!feof(fp)) {
         //Read from the file into our send buffer
         read_size = fread(sendline, 1, MAX_DGRAM_SIZE, fp);
-        printf("Image size read: %ld\n", read_size);
+        printf("File size read: %ld\n", read_size);
         //Send data through our socket 
         //printf("%d bytes sent to client.\n", n);
         if ((n = sendto(sd, sendline, read_size, 0, (struct sockaddr*)&addr, addrlen)) == -1) {
@@ -217,46 +224,10 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
     }
     
-    /*char ch;
-    for (int i=0; i<(int)max_size; i++) {
-        ch = fgetc(fp);
-        sendline[i] = ch;
-        if (ch == EOF) break;
-    }*/
-    
-    
-    /*while(!feof(fp)) {
-      //Read from the file into our send buffer
-      read_size = fread(sendline, 1, max_size-1, fp);
-      printf("Image size read: %ld\n", read_size);
-      //Send data through our socket 
-      do{
-        n = sendto(sd, sendline, read_size, 0, (struct sockaddr*)&addr, addrlen);  
-        printf("%d bytes sent to client.\n", n);
-        if (n == -1) {
-        	fprintf(stderr, "Error: couldn't send data.\n");
-        	return;
-        }
-      }while (n < 0);
-    }*/
-    
-    /*//Send the file to the client
-    if (sendto(sd, sendline, max_size, 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send the file content.\n");
-        free(sendline);
-        return;
-    } else {
-        printf("File content correctly sent.\n");
-    }*/
- 
-
     free(sendline);
     fclose(fp);
     printf("sendline freed.\n\n");
 }
-
-
-
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -265,19 +236,48 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
  */
 
 
-void response_put(char* filename, int server)
+void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
 {
-
+    socklen_t addrlen = sizeof(addr);
     FILE *fp;
     char path[strlen("files/")+strlen(filename)];
     size_t max_size;
     ssize_t write_size = 0;
     int dgrams, temp, i;
-    
+    DIR* dirp;
+    struct dirent* pdirent;
+      
     printf("response_put started.\n");
     
     strcpy(path, "files/");
     strcat(path, filename);
+
+    //Check if the file already exists
+    dirp = opendir("files");
+    if (dirp == NULL) {
+        perror("Cannot open directory");
+        exit(-1);
+    }
+    
+    while ((pdirent = readdir(dirp)) != NULL) {
+        if(!(strcmp(pdirent->d_name, filename))){
+            printf("The selected file already exists.\n");
+            //Sending an advertisement to client to abort the operation (maybe avoidable with reliability)
+            if (sendto(sd, NULL, 0, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+		        fprintf(stderr, "Error: couldn't send the message.\n");
+		        return;
+		    }
+
+		    printf("Advertisement correctly sent.\n");
+		    return;
+        }
+    }
+
+    //Sending an advertisement to client to continue with the operation (maybe avoidable with reliability)
+    if (sendto(sd, "OK", 2, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the message.\n");
+        return;
+    }
     
     //Open the file associated with the filename
     fp = fopen(path, "w+");
@@ -287,26 +287,7 @@ void response_put(char* filename, int server)
     } else {
         printf("File %s correctly opened.\n", filename);
     }
-    
-    /*Check if the file already exists in the server and if not create it
-    pthread_mutex_lock(&file_mux);
-    printf("mutex file_mux locked. (3)\n");
-    if (filelist_ctrl(filename)) {
-        flp = fopen(filelist, "a+");
-        if (flp == NULL) {
-            fprintf(stderr, "Error: couldn't open filelist.");
-            return;
-        } else {
-            printf("Filelist correctly opened.\n");
-        }
-        
-        fputs(filename, flp);
-        fputs("\n", flp);
-        fclose(flp);       
-    } 
-    pthread_mutex_unlock(&file_mux);
-    printf("mutex file_mux unlocked. (3)\n");*/
-    
+
     //Retrieve file dimension from socket
     pthread_mutex_lock(&put_avb[server]);
     //printf("mutex put_avb[%d] locked.\n", server);
@@ -340,8 +321,6 @@ void response_put(char* filename, int server)
     printf("Bytes written: %d\n", (int)write_size);
     fclose(fp);
 }
-
-
 
 /*
  ----------------------------------------------------------------------------------------------------------------------------------------------
@@ -377,10 +356,8 @@ void* thread_service(void* p){
 
 		//Retrieve client address and request
 		pthread_mutex_lock(&list_mux);
-		//printf("mutex list_mux locked (2).\n");
 		get_client(&cliaddr_head, tag, &address, buff);
 	    pthread_mutex_unlock(&list_mux);
-	    //printf("mutex list_mux unlocked (2).\n");
 
 	    cmd = strtok(buff, " \n");
 	    printf("Selected request: %s\n", cmd);
@@ -407,9 +384,8 @@ void* thread_service(void* p){
 	        	continue;
 	        } 
 	        filename = strdup(cmd);
-	        response_put(filename, tag);
+	        response_put(listensd, address, filename, tag);
 
-	        //buf_clear(put_msg[tag], strlen(put_msg[tag]));
 	    } else {
 	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
             clean_thread(&cliaddr_head, &address, &list_mux, tag);
@@ -485,17 +461,12 @@ int main(void)
 	cliaddr_head = NULL;
 
     pthread_mutex_init(&list_mux, 0);
-	//printf("mutex list_mux initialized.\n");
 	pthread_mutex_init(&file_mux, 0);
-	//printf("mutex file_mux initialized.\n");
 
 	for(i=0; i<THREAD_POOL; i++){
 		pthread_mutex_init(&put_free[i], 0);
-		//printf("mutex put_free[%d] initialized.\n", i);
 		pthread_mutex_init(&put_avb[i], 0);
-		//printf("mutex put_avb[%d] initialized.\n", i);
 		pthread_mutex_lock(&put_avb[i]);
-		//printf("mutex put_avb[%d] locked.\n", i);
 	}
 
     //Create thread pool
@@ -525,23 +496,16 @@ int main(void)
 	    	printf("\033[0;32mClient already queued!\033[0m\n");
             
 	    	pthread_mutex_lock(&put_free[thread]);
-	    	//printf("mutex put_free[%d] locked.\n", thread);
 	    	memcpy(put_msg[thread], buff, n);
-            //printf("PUT_MSG[%d] = %s\n", thread, put_msg[thread]);
-	    	pthread_mutex_unlock(&put_avb[thread]); // put_avb??
-	    	//printf("mutex put_avb[%d] unlocked.\n", thread);
+	    	pthread_mutex_unlock(&put_avb[thread]);
 
 	    }else{
 	    	printf("\033[0;34mReceived a new request.\033[0m\n");
 		
 	        //Add new client address to list
 	        pthread_mutex_lock(&list_mux);
-	        //printf("mutex list_mux locked.\n");
 	        insert_client(&cliaddr_head, cliaddr, buff);
 	        pthread_mutex_unlock(&list_mux);
-	        //printf("mutex list_mux unlocked.\n");
-	        
-	        print_list(cliaddr_head); // print client queue
 	       
 	        //Signal the serving threads 
 	        while(semop(sem_client, &ops, 1) == -1){
@@ -553,9 +517,7 @@ int main(void)
 		    	}
 		    }
 	    }
-		//buf_clear(buff, MAX_DGRAM_SIZE);	
 		
-		//sleep(4); // added in order to test if the concurrency of clients works.
 		printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
     }
     exit(0);

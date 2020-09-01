@@ -46,4 +46,6 @@ extern void clean_thread(Client**, struct sockaddr_in*, pthread_mutex_t*, int);
 
 extern void print_list(Client*);
 
+extern int filelist_ctrl(char*);
+
 #endif /* client_test_h */
