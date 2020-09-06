@@ -65,11 +65,13 @@
 int request_list(int sd, struct sockaddr_in addr)
 {
     socklen_t addrlen = sizeof(addr);
-    char buff[MAXLINE];
+    //char buff[MAXLINE]; NO PACKETS
     int n;
+    Packet* pk;
     
     printf("\033[1;34m--- FILELIST ---\033[0m\n");
-    while ((n = recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen)) != -1) {
+    /*
+    while ((n = recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen)) != -1) { //NO PACKETS
         if(n == 0){
             return 0;
         }else{
@@ -77,7 +79,24 @@ int request_list(int sd, struct sockaddr_in addr)
             buf_clear(buff);
         }
     }
+    */
+    pk = (Packet*)malloc(sizeof(Packet));
+    if (pk == NULL) {
+    	fprintf(stderr, "Error: couldn't malloc packet.\n");
+    	return 0;
+    }
     
+    while ((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen)) != -1) {
+        if(n == 0){
+            return 0;
+        }else{
+            printf("%s\n", pk->data);
+        }
+    }
+    
+    free(pk->type);
+    free(pk->data);
+    free(pk);
     return 1;
 }
 
@@ -94,9 +113,11 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     socklen_t addrlen = sizeof(addr);
     size_t max_size;
     ssize_t write_size = 0;
-    char buff[MAXLINE]; 
+    //char buff[MAXLINE]; NO PACKETS
+    //char buff[MAX_DGRAM_SIZE];
     char* recvline;
     int n, sum = 0;
+    Packet* pk;
 
     //Open the file to write on
     fp = fopen(filename, "w+");
@@ -108,7 +129,8 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     }   
     
     //Retrive the dimension of the file to allocate
-    if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) > 0) {
+    /*
+    if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) > 0) {          NO PACKETS
         max_size = atoi(buff);
         printf("File size: %ld\n", max_size);
         if ((recvline = (char*)malloc(max_size)) == NULL) {
@@ -119,9 +141,30 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
         fprintf(stderr, "Error: couldn't retrieve dimension of file %s", filename);
         return 1;
     } 
+    */
     
+    pk = (Packet*)malloc(sizeof(Packet));
+    if (pk == NULL) {
+    	fprintf(stderr, "Error: couldn't malloc packet.\n");
+    	return 0;
+    }
+    
+    if (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) != -1) {
+    	max_size = atoi(pk->data);
+    	printf("File size: %ld\n", max_size);
+        if ((recvline = (char*)malloc(max_size)) == NULL) {
+            perror("Malloc() failed.\n");
+            return 0;
+        }
+    } else {
+    	fprintf(stderr, "Error: couldn't retrieve dimension of file %s", filename);
+    }
+    
+    // Receive file content
+    
+    /*      NO PACKETS
     while(sum < (int)max_size){
-        /* Receive data in chunks of 1024 bytes */
+        // Receive data in chunks of 1024 bytes 
         if ((n = recvfrom(sd, recvline, max_size, 0, (struct sockaddr*)&addr, &addrlen)) == -1) {
             perror("Errore: couldn't read file content.\n");
             exit(EXIT_FAILURE);
@@ -133,8 +176,29 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
         // Convert byte array to image
         write_size += fwrite(recvline, 1, n, fp);
     }
+    */
+    
+    while(sum < (int)max_size){
+    	
+        /* Receive data in chunks of 1024 bytes */
+        if ((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen)) == -1){
+            perror("Errore: couldn't receive packet from socket.\n");
+            free(pk);
+            return 0;
+        } else {
+            sum += n; 	
+            printf("Bytes read: %d\n", sum);
+        }
+
+        // Convert byte array to image
+        write_size += fwrite(pk->data, 1, pk->data_size, fp);
+        printf("write_size = %ld/%ld.\n", write_size, max_size);
+    }
       
     printf("Bytes written: %d\n", (int)max_size);
+    free(pk->data);
+    free(pk->type);
+    free(pk);
     fclose(fp);
     free(recvline);
     printf("Done.\n"); 

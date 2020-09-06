@@ -8,6 +8,7 @@
 
 #define SERV_PORT 5193
 #define MAXLINE 1024
+#define MAXSIZE 65400
 #define THREAD_POOL	10
 #define MAX_DGRAM_SIZE 65505
 
@@ -118,12 +119,16 @@ Client *cliaddr_head;
     printf("sendline freed.\n\n"); 
 }*/
 
+
 void response_list(int sd, struct sockaddr_in addr)
 {
     socklen_t addrlen = sizeof(addr);
-    char buff[MAXLINE];
+    //char buff[MAXLINE];
+    char buff[MAX_DGRAM_SIZE];
     DIR* dirp;
     struct dirent* pdirent;
+    Packet *pk;
+    int size;
       
     printf("response_list started.\n");
     
@@ -143,14 +148,23 @@ void response_list(int sd, struct sockaddr_in addr)
         }
 
         strcpy(buff, pdirent->d_name);
-        if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
+        
+        pk = create_packet("data", 0, strlen(buff), buff);
+        
+        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+        	fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq);
+        	return;
+        }
+        
+        /*if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
             fprintf(stderr, "Error: couldn't send the filename.\n");
             return;
         } else {
             printf("Filename %s correctly sent.\n", buff);
-        }
+        }*/
 
-        buf_clear(buff, MAXLINE);
+        //buf_clear(buff, MAXLINE);
+        memset(buff, 0, MAX_DGRAM_SIZE);
     } 
 
     if (sendto(sd, NULL, 0, 0, (struct sockaddr*)&addr, addrlen) == -1) {
@@ -169,13 +183,16 @@ void response_list(int sd, struct sockaddr_in addr)
 void response_get(int sd, struct sockaddr_in addr, char* filename)
 {
     socklen_t addrlen = sizeof(addr);
-    char buff[MAXLINE];
+    //char buff[MAXLINE];
+    char buff[MAX_DGRAM_SIZE];
     char *sendline;
     FILE *fp;
     size_t max_size;
     char path[strlen("files/")+strlen(filename)];
     int n;
     ssize_t read_size;
+    Packet* pk;
+    int size;
     
     printf("response_get started.\n");
     
@@ -197,6 +214,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     
     sprintf(buff, "%ld", max_size);
     
+    /*  NO PACKETS - SEND FILE DIMENSION
     //Send the file dimension
     if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
         fprintf(stderr, "Error: couldn't send the dimension.\n");
@@ -205,6 +223,21 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         printf("File dimension correctly sent.\n");
     }
     
+    */
+    
+    pk = create_packet("data", 0, strlen(buff), buff);
+    size = strlen(buff);
+    
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq);
+    	return;
+    } else {
+    	printf("File dimension in packet #%d sent correctly.\n", pk->seq);
+    }
+    
+    // Send file content
+    
+    /*   NO PACKETS
     //Allocate sufficient space to send the file
     if((sendline = (char*)malloc(max_size)) == NULL){
         perror("Malloc() failed.");
@@ -223,6 +256,37 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         }
         sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
     }
+    */
+    
+    free(pk);
+    int i = 0;
+    
+    if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
+    	perror("Malloc() failed.");
+    	exit(-1);
+    }
+    		
+    while(!feof(fp)) {
+    	i++;
+        //Read from the file into our send buffer
+        read_size = fread(sendline, 1, MAXSIZE, fp);
+        printf("Image size read: %ld\n", read_size);
+        printf("MAXSIZE = %d", MAXSIZE);
+        printf("sendline = %s\n", sendline);
+        		
+        //Send data through our socket 
+        pk = create_packet("data", i, read_size, sendline);
+        		
+        if ((n = send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, &size)) == -1) {
+        	fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq);
+        	exit(EXIT_FAILURE);
+	}
+        		
+        free(pk);
+        memset(sendline, 0, MAX_DGRAM_SIZE);
+        sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
+    }
+    
     
     free(sendline);
     fclose(fp);
@@ -357,7 +421,7 @@ void* thread_service(void* p){
 		//Retrieve client address and request
 		pthread_mutex_lock(&list_mux);
 		get_client(&cliaddr_head, tag, &address, buff);
-	    pthread_mutex_unlock(&list_mux);
+	    	pthread_mutex_unlock(&list_mux);
 
 	    cmd = strtok(buff, " \n");
 	    printf("Selected request: %s\n", cmd);
