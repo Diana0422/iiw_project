@@ -11,6 +11,7 @@
 #define SERV_PORT 5193
 #define DIR_PATH files
 #define MAX_DGRAM_SIZE 65505
+#define MAXSIZE 65400
 
 /* 
  ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -220,6 +221,9 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     ssize_t read_size;
     char buff[MAXLINE];
     char* sendline;
+    Packet* pk;
+    int size;
+    int i;
     
     //Wait for the "all clear" of the server
     if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) == 0) {
@@ -244,15 +248,29 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         
     // Send the dimension to the server
     sprintf(buff, "%ld", max_size);
+    /* NO PACKETS
     if (sendto(sd, buff, strlen(buff), 0, (struct sockaddr*)&addr, addrlen) == -1) {
         fprintf(stderr, "Error: couldn't send the dimension to the server.");
         fclose(fp);
         return 1;
     } else {
         printf("File dimension correctly sent.\n");
+    }*/
+    
+    pk = create_packet("data", 0, strlen(buff), buff);
+    
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	fprintf(stderr, "Error: couldn't send the dimension packet to server.\n");
+    	fclose(fp);
+    	return 1;
+    } else {
+    	printf("File dimension correctly sent.\n");
     }
-        
-    //Allocate space
+    
+    // Send data content
+    
+    /*    
+    //Allocate space                      NO PACKETS
     sendline = (char*)malloc(max_size);
     if(sendline == NULL){
         perror("Malloc() failed.");
@@ -270,6 +288,40 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
+        sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
+    }
+    */
+    
+    //Allocate space
+    sendline = (char*)malloc(MAX_DGRAM_SIZE);
+    if(sendline == NULL){
+        perror("Malloc() failed.");
+        exit(EXIT_FAILURE);
+    }
+    
+    i = 0;
+    
+    while(!feof(fp)) {
+    	i++;
+    
+        //Read from the file into our send buffer
+        read_size = fread(sendline, 1, MAXSIZE, fp);
+        printf("File size read: %ld\n", read_size);
+        printf("MAXSIZE = %d", MAXSIZE);
+        printf("sendline = %s\n", sendline);
+        
+        //Send data through our socket
+        pk = create_packet("data", i, read_size, sendline);
+         
+        //printf("%d bytes sent to client.\n", n);
+        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+            free(sendline);
+            fprintf(stderr, "Error: couldn't send data.\n");
+            return 1;
+        }
+        
+        free(pk);
+        memset(sendline, 0, MAX_DGRAM_SIZE);
         sleep(1); //USED TO COORDINATE SENDER AND RECEIVER IN THE ABSENCE OF RELIABILITY 
     }
 
@@ -293,6 +345,8 @@ int main(int argc, char* argv[])
     socklen_t addrlen = sizeof(servaddr);
     int res = 0;
     char *tok, *filename;
+    Packet* pk;
+    int size;
     
     //Check command line
     if (argc < 2) {
@@ -331,12 +385,22 @@ int main(int argc, char* argv[])
 
         #endif 
         
-        while (sendto(sockfd, buff, strlen(buff), 0, (struct sockaddr*)&servaddr, addrlen) == -1) {
+        pk = create_packet("data", 0, strlen(buff), buff);
+        
+        /*
+        while (sendto(sockfd, buff, strlen(buff), 0, (struct sockaddr*)&servaddr, addrlen) == -1) { NO PACKETS
             if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
                 continue;
             }
         }
-            
+        */
+        
+        while (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &size) == -1) {
+        	if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
+                	continue;
+            	}
+        }
+        
         printf("\n\033[0;32mInput successfully sent.\033[0m\n");
         
         //Retrieve command       
@@ -388,5 +452,6 @@ int main(int argc, char* argv[])
         break;
     }
     
+    free(pk);
     exit(0);
 }

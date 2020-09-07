@@ -397,7 +397,7 @@ void* thread_service(void* p){
 	struct sembuf oper;
 	struct sockaddr_in address;
 	char* cmd, *filename;
-	char buff[MAXLINE];
+	char buff[MAX_DGRAM_SIZE];
 	int tag = *((int*)p);
 
     oper.sem_num = 0;
@@ -406,7 +406,8 @@ void* thread_service(void* p){
 
 	while(1){
 
-		buf_clear(buff, MAXLINE);
+		//buf_clear(buff, MAXLINE);
+		memset(buff, 0, MAX_DGRAM_SIZE);
 
 		//Waiting for a request to serve
 		while(semop(sem_client, &oper, 1) == -1){
@@ -466,6 +467,7 @@ int main(void)
     pthread_t tid;
     int index[THREAD_POOL];
     int thread, i, n;
+    Packet* pk;
 
     char buff[MAX_DGRAM_SIZE];
 
@@ -524,7 +526,7 @@ int main(void)
 	//Initialize client address list
 	cliaddr_head = NULL;
 
-    pthread_mutex_init(&list_mux, 0);
+    	pthread_mutex_init(&list_mux, 0);
 	pthread_mutex_init(&file_mux, 0);
 
 	for(i=0; i<THREAD_POOL; i++){
@@ -547,42 +549,62 @@ int main(void)
 
     while(1) {
 
-        buf_clear(buff, MAX_DGRAM_SIZE);
+        memset(buff, 0, MAX_DGRAM_SIZE);
 
-        if ((n = recvfrom(listensd, buff, MAX_DGRAM_SIZE, 0, (struct sockaddr*)&cliaddr, &cliaddrlen)) == -1) {
+        /*if ((n = recvfrom(listensd, buff, MAX_DGRAM_SIZE, 0, (struct sockaddr*)&cliaddr, &cliaddrlen)) == -1) {
         	perror("recvfrom() failed");
         	close(listensd);
 	        exit(-1);
 	    }
+	  NO PACKETS
+	 */
+	 
+	pk = (Packet*)malloc(sizeof(Packet));
+	if (pk == NULL) {
+		fprintf(stderr, "Error: couldn't malloc packet.\n");
+		exit(EXIT_FAILURE);
+	}
 
-	    //Check if the client is still being served
-	    if(dispatch_client(cliaddr_head, cliaddr, &thread)){
-	    	printf("\033[0;32mClient already queued!\033[0m\n");
+	if ((n = recv_packet(pk, listensd, (struct sockaddr*)&cliaddr, cliaddrlen)) == -1) {
+		fprintf(stderr, "Error: couldn't receive packet.\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	
+	//Check if the client is still being served
+	if(dispatch_client(cliaddr_head, cliaddr, &thread)){
+	    printf("\033[0;32mClient already queued!\033[0m\n");
             
-	    	pthread_mutex_lock(&put_free[thread]);
-	    	memcpy(put_msg[thread], buff, n);
-	    	pthread_mutex_unlock(&put_avb[thread]);
+	    pthread_mutex_lock(&put_free[thread]);
+	    //memcpy(put_msg[thread], buff, n);
+	    memcpy(put_msg[thread], pk->data, pk->data_size);
+	    pthread_mutex_unlock(&put_avb[thread]);
+	    
+	    free(pk->type);
+	    free(pk->data);
+	    free(pk);
 
-	    }else{
-	    	printf("\033[0;34mReceived a new request.\033[0m\n");
+	}else{
+	    printf("\033[0;34mReceived a new request.\033[0m\n");
 		
-	        //Add new client address to list
-	        pthread_mutex_lock(&list_mux);
-	        insert_client(&cliaddr_head, cliaddr, buff);
-	        pthread_mutex_unlock(&list_mux);
+	    //Add new client address to list
+	    pthread_mutex_lock(&list_mux);
+	    //insert_client(&cliaddr_head, cliaddr, buff);
+	    insert_client(&cliaddr_head, cliaddr, pk->data);
+	    pthread_mutex_unlock(&list_mux);
 	       
-	        //Signal the serving threads 
-	        while(semop(sem_client, &ops, 1) == -1){
-		    	if(errno == EINTR){
-		    		continue;
-		    	}else{
-		    		fprintf(stderr, "semop() failed");
-		    		exit(-1);
-		    	}
-		    }
+	    //Signal the serving threads 
+	    while(semop(sem_client, &ops, 1) == -1){
+            	if(errno == EINTR){
+		    	continue;
+		}else{
+		    	fprintf(stderr, "semop() failed");
+		    	exit(-1);
+		}
 	    }
+	}
 		
-		printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
+       printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
     }
     exit(0);
 }

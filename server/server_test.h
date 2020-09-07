@@ -28,7 +28,7 @@
 
 typedef struct node{
 	struct sockaddr_in addr;
-	char buff[MAXLINE];
+	char buff[MAX_DGRAM_SIZE];
 	int server;
 	struct node* next;
 }Client;

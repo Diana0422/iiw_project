@@ -26,7 +26,7 @@ Packet* create_packet(char* type, int seq_num, size_t size, char* data)
 		fprintf(stderr, "Error: Malloc() packet #%d.\n", seq_num);
 		return NULL;
 	} else {
-		printf("Packet #%d successfully allocated.\n", seq_num);
+		//printf("Packet #%d successfully allocated.\n", seq_num);
 	}
 	
 	//pack->data = NULL;
@@ -40,17 +40,18 @@ Packet* create_packet(char* type, int seq_num, size_t size, char* data)
 		fprintf(stderr, "Error: malloc() pack->data.\n");
 		return NULL;
 	} else {
-		printf("pack->data allocated successfully.\n\n");
+		//printf("pack->data allocated successfully.\n\n");
 	}
 	
 	memcpy(pack->data, data, pack->data_size);
 	
+	/*
 	printf("--PACKET: \n");
 	printf("  type:      %s \n", pack->type);
 	printf("  seq:       %d  \n", pack->seq);
 	printf("  data_size: %ld  \n", pack->data_size);
 	printf("  data:      %s  \n\n\n", pack->data);
-	
+	*/
 	return pack;
 }
 
@@ -203,7 +204,7 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
  	if ((n = sendto(socket, buffer, len, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
     	} else {
- 		printf("Packet #%d sent successfully.\n\n", pkt->seq);
+ 		//printf("Packet #%d sent successfully.\n\n", pkt->seq);
  		memset(buffer, 0, MAX_DGRAM_SIZE);
     	}
     	
