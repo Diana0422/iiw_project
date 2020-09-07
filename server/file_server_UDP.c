@@ -24,6 +24,10 @@ char put_msg[THREAD_POOL][MAX_DGRAM_SIZE+1];
 
 Client *cliaddr_head;
 
+typedef struct thread_arg {
+ 	int thread;
+ 	size_t datalen;
+ }thread_arg;
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -344,7 +348,7 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
     }
     
     //Open the file associated with the filename
-    fp = fopen(path, "w+");
+    fp = fopen(path, "wb+");
     if (fp == NULL) {
         perror("fopen() failed");
         return;
@@ -366,7 +370,8 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
             pthread_mutex_lock(&put_avb[server]);
             //printf("mutex put_avb[%d] locked.\n", server);
             // Convert byte array to image
-            write_size += fwrite(put_msg[server], 1, MAX_DGRAM_SIZE, fp);
+            //write_size += fwrite(put_msg[server], 1, MAX_DGRAM_SIZE, fp);
+            write_size += fwrite(put_msg[server], 1, MAXSIZE, fp);
 
             pthread_mutex_unlock(&put_free[server]);
             //printf("mutex put_free[%d] unlocked.\n", server);
@@ -392,13 +397,14 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
  ----------------------------------------------------------------------------------------------------------------------------------------------
  */
     
-void* thread_service(void* p){
+void* thread_service(void* arg){
 
 	struct sembuf oper;
 	struct sockaddr_in address;
 	char* cmd, *filename;
 	char buff[MAX_DGRAM_SIZE];
-	int tag = *((int*)p);
+	//int tag = *((int*)p);
+	thread_arg a = *((thread_arg*)arg);
 
     oper.sem_num = 0;
     oper.sem_op = -1;
@@ -421,7 +427,8 @@ void* thread_service(void* p){
 
 		//Retrieve client address and request
 		pthread_mutex_lock(&list_mux);
-		get_client(&cliaddr_head, tag, &address, buff);
+		//get_client(&cliaddr_head, tag, &address, buff);
+		get_client(&cliaddr_head, a.thread, &address, buff, a.datalen);
 	    	pthread_mutex_unlock(&list_mux);
 
 	    cmd = strtok(buff, " \n");
@@ -435,7 +442,8 @@ void* thread_service(void* p){
 	        //Respond to GET
 	        if((cmd = strtok(NULL, " \n")) == NULL){
 	        	printf("Please, insert also the filename.\n");
-	        	clean_thread(&cliaddr_head, &address, &list_mux, tag);
+	        	//clean_thread(&cliaddr_head, &address, &list_mux, tag);
+	        	clean_thread(&cliaddr_head, &address, &list_mux, a.thread);
 	        	continue;
 	        }
 
@@ -445,19 +453,23 @@ void* thread_service(void* p){
 	        //Respond to PUT
 	        if((cmd = strtok(NULL, " \n")) == NULL){
 	        	printf("Please, insert also the filename.\n");
-	        	clean_thread(&cliaddr_head, &address, &list_mux, tag);
+	        	//clean_thread(&cliaddr_head, &address, &list_mux, tag);
+	        	clean_thread(&cliaddr_head, &address, &list_mux, a.thread);
 	        	continue;
 	        } 
 	        filename = strdup(cmd);
-	        response_put(listensd, address, filename, tag);
+	        //response_put(listensd, address, filename, tag);
+	        response_put(listensd, address, filename, a.thread);
 
 	    } else {
 	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
-            clean_thread(&cliaddr_head, &address, &list_mux, tag);
+            //clean_thread(&cliaddr_head, &address, &list_mux, tag);
+            clean_thread(&cliaddr_head, &address, &list_mux, a.thread);
             continue;
 	    }
 
-	    clean_thread(&cliaddr_head, &address, &list_mux, tag);
+	    //clean_thread(&cliaddr_head, &address, &list_mux, tag);
+	    clean_thread(&cliaddr_head, &address, &list_mux, a.thread);
 	}
 	pthread_exit(0);
 }
@@ -465,7 +477,8 @@ void* thread_service(void* p){
 int main(void)
 {
     pthread_t tid;
-    int index[THREAD_POOL];
+    //int index[THREAD_POOL];
+    thread_arg* arg[THREAD_POOL];
     int thread, i, n;
     Packet* pk;
 
@@ -537,12 +550,22 @@ int main(void)
 
     //Create thread pool
     for(i=0; i<THREAD_POOL; i++){
-    	index[i] = i;
-    	if(pthread_create(&tid, 0, (void*)thread_service, (void*)&index[i])){
+    	
+    	arg[i] = (thread_arg*)malloc(sizeof(thread_arg));
+    	arg[i]->thread = i;
+    	//index[i] = i;
+    	/*if(pthread_create(&tid, 0, (void*)thread_service, (void*)&index[i])){
             fprintf(stderr, "pthread_create() failed");
             close(listensd);
             exit(-1);
-        } 
+        } */
+        
+        if(pthread_create(&tid, 0, (void*)thread_service, (void*)arg[i])){
+            fprintf(stderr, "pthread_create() failed");
+            close(listensd);
+            exit(-1);
+        }
+        
     }
     
     printf("\033[0;34mWaiting for a request...\033[0m\n");
@@ -570,6 +593,11 @@ int main(void)
 		exit(EXIT_FAILURE);
 	}
 	
+	printf("--PACKET #%d: \n", pk->seq);
+	printf("  type:      %s \n", pk->type);
+	printf("  seq:       %d  \n", pk->seq);
+	printf("  data_size: %ld  \n", pk->data_size);
+	printf("  data:      %s  \n\n\n", pk->data);
 	
 	//Check if the client is still being served
 	if(dispatch_client(cliaddr_head, cliaddr, &thread)){
@@ -578,6 +606,7 @@ int main(void)
 	    pthread_mutex_lock(&put_free[thread]);
 	    //memcpy(put_msg[thread], buff, n);
 	    memcpy(put_msg[thread], pk->data, pk->data_size);
+	    printf("put_msg[thread] = %s.\n", pk->data);
 	    pthread_mutex_unlock(&put_avb[thread]);
 	    
 	    free(pk->type);
@@ -590,7 +619,7 @@ int main(void)
 	    //Add new client address to list
 	    pthread_mutex_lock(&list_mux);
 	    //insert_client(&cliaddr_head, cliaddr, buff);
-	    insert_client(&cliaddr_head, cliaddr, pk->data);
+	    insert_client(&cliaddr_head, cliaddr, pk->data, pk->data_size);
 	    pthread_mutex_unlock(&list_mux);
 	       
 	    //Signal the serving threads 

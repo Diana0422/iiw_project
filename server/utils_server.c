@@ -7,7 +7,7 @@ void buf_clear(char *buffer, int dim)
     for (int i=0; i<dim; i++) buffer[i] = '\0';
 }
 
-void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
+void insert_client(Client **h, struct sockaddr_in cli_addr, char* message, size_t mess_size){
     
     Client *new;
     if((new = (Client*)malloc(sizeof(Client))) == NULL){
@@ -19,7 +19,8 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
     Client *curr;
 
     new->addr = cli_addr;
-    strcpy(new->buff, message);
+    //strcpy(new->buff, message);
+    memcpy(new->buff, message, mess_size);
     new->server = -1;
     new->next = NULL;
 
@@ -43,7 +44,7 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, char* message){
     print_list(*h);
 }	
 
-void get_client(Client **h, int thread, struct sockaddr_in *address, char* message){
+void get_client(Client **h, int thread, struct sockaddr_in *address, char* message, size_t size){
     Client *prev;
     Client *curr;
 
@@ -57,6 +58,7 @@ void get_client(Client **h, int thread, struct sockaddr_in *address, char* messa
             prev->server = thread;
             *address = prev->addr;
             strcpy(message, prev->buff);
+            //memcpy(message, prev->buff, size);
 
             printf("Client acquired: ");
             print_list(*h);

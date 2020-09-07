@@ -232,7 +232,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     }
 
     //Open the file
-    fp = fopen(filename, "r");
+    fp = fopen(filename, "rb");
     if (fp == NULL) {
         fprintf(stderr, "Error: cannot open file %s.\n", filename);
         return 1;
