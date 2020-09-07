@@ -1,0 +1,11 @@
+CONNESSIONE:
+- connessione client-server: prima di effettuare lo scambio dei pacchetti è necessario effettuare il 3-way handhake.
+GENERALI:
+- il numero di sequenza è relativo all'utlimo byte che è stato ricevuto correttamente.
+- cumulative acknowledgement: prima di inviare l'ack per un pacchetto di byte ricevuti si attende un piccolo intervallo di tempo (con timer) in attesa di ricevere altri dati dal socket.
+TRASMISSIONE AFFIDABILE:
+- receiver and sender buffer: il destinatario mantiene i byte ricevuti non ordinati e attende quelli mancanti per colmare i vuoti.
+- sequence number: i partecipanti della connessione TCP scelgono a caso un numero di sequenza iniziale.
+- piggy-backing: inserire anche la possibilità di inviare dati + ack con lo stesso pacchetto.
+- timeout: stima dell'rtt (EstimatedRTT and DevRTT)? + timer associato al pacchetto più vecchio ricevuto senza riscontro. Alla scandenza del timeout ritrasmissione del pacchetto che l'ha causato, reinviando il pacchetto. Il timer viene successivamente riavviato. Dopo essere scaduto il timeout il timeout interval viene impostato al doppio del valore precedente anziché derivarlo da DevRTT e EstimatedRTT.
+- fast retransmit: 3 ack duplicati = ritrasmissione del pacchetto successivo al numero di sequenza dell'ack duplicato.
