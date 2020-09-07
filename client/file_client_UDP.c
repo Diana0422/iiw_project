@@ -11,7 +11,7 @@
 #define SERV_PORT 5193
 #define DIR_PATH files
 #define MAX_DGRAM_SIZE 65505
-#define MAXSIZE 65400
+#define PAYLOAD 65400
 
 /* 
  ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -181,7 +181,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     
     while(sum < (int)max_size){
     	
-        /* Receive data in chunks of 1024 bytes */
+        /* Receive data in chunks of 65000 bytes */
         if ((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen)) == -1){
             perror("Errore: couldn't receive packet from socket.\n");
             free(pk);
@@ -305,9 +305,9 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     	i++;
     
         //Read from the file into our send buffer
-        read_size = fread(sendline, 1, MAXSIZE, fp);
+        read_size = fread(sendline, 1, PAYLOAD, fp);
         printf("File size read: %ld\n", read_size);
-        printf("MAXSIZE = %d", MAXSIZE);
+        printf("PAYLOAD = %d", PAYLOAD);
         printf("sendline = %s\n", sendline);
         
         //Send data through our socket
@@ -350,7 +350,7 @@ int main(int argc, char* argv[])
     
     //Check command line
     if (argc < 2) {
-        failure("Utilization: client_test <server IP>");
+        failure("Utilization: ./client <server IP>");
     }
     
     //Create socket
@@ -380,7 +380,7 @@ int main(int argc, char* argv[])
 
         #else
 
-        printf("\n\033[0;34mChoose an operation:\033[0m ");
+        printf("\n\n\033[0;34mChoose an operation:\033[0m ");
         fgets(buff, sizeof(buff), stdin);
 
         #endif 
@@ -449,7 +449,6 @@ int main(int argc, char* argv[])
             printf("OK.\n");
         }
         
-        break;
     }
     
     free(pk);

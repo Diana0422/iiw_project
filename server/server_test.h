@@ -10,6 +10,7 @@
 #define client_test_h
 #define MAXLINE 1024
 #define MAX_DGRAM_SIZE 65505
+#define PAYLOAD 65400
 
 #include <stdio.h>
 #include <sys/socket.h>

@@ -1,7 +1,7 @@
 /*UTILS.C*/
 
 #include "client_test.h"
-#define MAXSIZE 200000
+#define PAYLOAD 200000
 
 /*typedef struct message {
 	char* type;

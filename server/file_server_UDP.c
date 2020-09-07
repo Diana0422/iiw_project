@@ -8,7 +8,7 @@
 
 #define SERV_PORT 5193
 #define MAXLINE 1024
-#define MAXSIZE 65400
+#define PAYLOAD 65400
 #define THREAD_POOL	10
 #define MAX_DGRAM_SIZE 65505
 
@@ -213,10 +213,10 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     
     //Retrieve the file dimension
     fseek(fp, 0, SEEK_END);
-    max_size = ftell(fp);
+    max_size = ftell(fp); 
     fseek(fp, 0, SEEK_SET);
     
-    sprintf(buff, "%ld", max_size);
+    sprintf(buff, "%ld", max_size); 
     
     /*  NO PACKETS - SEND FILE DIMENSION
     //Send the file dimension
@@ -273,9 +273,9 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     while(!feof(fp)) {
     	i++;
         //Read from the file into our send buffer
-        read_size = fread(sendline, 1, MAXSIZE, fp);
+        read_size = fread(sendline, 1, PAYLOAD, fp);
         printf("Image size read: %ld\n", read_size);
-        printf("MAXSIZE = %d", MAXSIZE);
+        printf("PAYLOAD = %d", PAYLOAD);
         printf("sendline = %s\n", sendline);
         		
         //Send data through our socket 
@@ -357,6 +357,7 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
     }
 
     //Retrieve file dimension from socket
+    
     pthread_mutex_lock(&put_avb[server]);
     //printf("mutex put_avb[%d] locked.\n", server);
     max_size = atoi(put_msg[server]);
@@ -371,7 +372,7 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
             //printf("mutex put_avb[%d] locked.\n", server);
             // Convert byte array to image
             //write_size += fwrite(put_msg[server], 1, MAX_DGRAM_SIZE, fp);
-            write_size += fwrite(put_msg[server], 1, MAXSIZE, fp);
+            write_size += fwrite(put_msg[server], 1, PAYLOAD, fp);
 
             pthread_mutex_unlock(&put_free[server]);
             //printf("mutex put_free[%d] unlocked.\n", server);
@@ -582,6 +583,7 @@ int main(void)
 	  NO PACKETS
 	 */
 	 
+	// Receive request from client
 	pk = (Packet*)malloc(sizeof(Packet));
 	if (pk == NULL) {
 		fprintf(stderr, "Error: couldn't malloc packet.\n");
@@ -593,11 +595,11 @@ int main(void)
 		exit(EXIT_FAILURE);
 	}
 	
-	printf("--PACKET #%d: \n", pk->seq);
+	/*printf("--PACKET #%d: \n", pk->seq);
 	printf("  type:      %s \n", pk->type);
 	printf("  seq:       %d  \n", pk->seq);
 	printf("  data_size: %ld  \n", pk->data_size);
-	printf("  data:      %s  \n\n\n", pk->data);
+	printf("  data:      %s  \n\n\n", pk->data);*/
 	
 	//Check if the client is still being served
 	if(dispatch_client(cliaddr_head, cliaddr, &thread)){
