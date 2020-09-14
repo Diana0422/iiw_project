@@ -97,7 +97,7 @@ int request_list(int sd, struct sockaddr_in addr, int sequence)
         }
      
         if (pk->seq == recv_base) {
-        	printf("%d.\n", pk->seq);
+        	//printf("%d.\n", pk->seq);
         	printf("%s\n", pk->data);
         	
             	recv_base++;

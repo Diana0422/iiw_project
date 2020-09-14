@@ -26,7 +26,7 @@ Packet* create_packet(char* type, int seq_num, size_t size, char* data)
 		fprintf(stderr, "Error: Malloc() packet #%d.\n", seq_num);
 		return NULL;
 	} else {
-		printf("Packet #%d successfully allocated.\n", seq_num);
+		//printf("Packet #%d successfully allocated.\n", seq_num);
 	}
 	
 	//pack->data = NULL;
@@ -46,11 +46,11 @@ Packet* create_packet(char* type, int seq_num, size_t size, char* data)
 	memset(pack->data, 0, PAYLOAD);
 	memcpy(pack->data, data, pack->data_size);
 	
-	printf("--PACKET: \n");
+	/*printf("--PACKET: \n");
 	printf("  type:      %s \n", pack->type);
 	printf("  seq:       %d  \n", pack->seq);
 	printf("  data_size: %ld  \n", pack->data_size);
-	printf("  data:      %s  \n\n\n", pack->data);
+	printf("  data:      %s  \n\n\n", pack->data);*/
 	
 	return pack;
 }
@@ -91,10 +91,10 @@ char* serialize_packet(char* buffer, Packet* packet, int* buf_size)
 	memcpy(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1, packet->data, packet->data_size);   	
 	    	
 	memset(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1+packet->data_size, 0, PAYLOAD-(packet->data_size));
-	printf("\nPacket #%d serialized.\n\n", packet->seq);
-	printf("-- buffer = %s\n\n", buffer);
+	//printf("\nPacket #%d serialized.\n\n", packet->seq);
+	//printf("-- buffer = %s\n\n", buffer);
 	*buf_size = strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1+packet->data_size;
-	printf("buffer size = %d.\n\n", *buf_size);
+	//printf("buffer size = %d.\n\n", *buf_size);
 	
 	return buffer;
 }
@@ -140,7 +140,7 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 	
 	data_size = atoi(size);
 	
-	printf("boh.\n");
+	//printf("boh.\n");
 	data = (char*)malloc(data_size);
 	if (data == NULL) {
 		fprintf(stderr, "Error: malloc() data.\n");
@@ -148,13 +148,13 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 	} else {
 		//printf("malloc() data successful.\n");
 	}
-	printf("bruh.\n");
+	//printf("bruh.\n");
 	
 	hdr_size = strlen(type)+1+strlen(seq)+1+strlen(size)+1;
 	
-	printf("It's you? (0) ");
+	//printf("It's you? (0) ");
 	memcpy(data, buffer+hdr_size, data_size);
-	printf("No it isn't (0)\n");
+	//printf("No it isn't (0)\n");
 	//printf("data = %s\n", data);
 	
 	/*packet->type = (char*)realloc(packet->type, strlen(type)+1);
@@ -164,18 +164,18 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 	} else {
 		//printf("packet->type successfully allocated.\n");
 	}*/
-	printf("It's you? (1) ");
+	//printf("It's you? (1) ");
 	memset(packet->type, 0, 5);
 	strcpy(packet->type , type);
-	printf("No it isn't (1)\n");
+	//printf("No it isn't (1)\n");
 	
-	printf("here 1.\n");
+	//printf("here 1.\n");
 	packet->seq = atoi(seq);
-	printf("here 2.\n");
+	//printf("here 2.\n");
 	packet->data_size = data_size;
-	printf("here 3.\n");
+	//printf("here 3.\n");
 	
-	printf("packet->data_size = %ld.\n", packet->data_size);
+	//printf("packet->data_size = %ld.\n", packet->data_size);
 	/*if (packet->data != NULL) {
 		free(packet->data);
 		printf("packet->data freed.\n");
@@ -190,17 +190,17 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 		printf("packet->data malloc successful.\n");
 	}*/
 	
-	printf("It's you? (2) ");
+	//printf("It's you? (2) ");
 	memset(packet->data, 0, PAYLOAD);
 	memcpy(packet->data, data, packet->data_size);
-	printf("No it isn't (2)\n");
+	//printf("No it isn't (2)\n");
 	
-	printf("\nPacket #%d unserialized.\n\n", packet->seq);
+	/*printf("\nPacket #%d unserialized.\n\n", packet->seq);
 	printf("--PACKET #%d: \n", packet->seq);
 	printf("  type:      %s \n", packet->type);
 	printf("  seq:       %d  \n", packet->seq);
 	printf("  data_size: %ld  \n", packet->data_size);
-	printf("  data:      %s  \n\n\n", packet->data);
+	printf("  data:      %s  \n\n\n", packet->data);*/
 	
 	free(buf_cpy);
 	free(data);
@@ -224,11 +224,11 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
  	serialize_packet(buffer, pkt, size);
  	len = *size;
  	
- 	printf("Sending packet...\n");
+ 	//printf("Sending packet...\n");
  	if ((n = sendto(socket, buffer, len, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
     	} else {
- 		printf("Packet #%d sent successfully.\n\n", pkt->seq);
+ 		//printf("Packet #%d sent successfully.\n\n", pkt->seq);
  		memset(buffer, 0, MAX_DGRAM_SIZE);
     	}
     	
@@ -248,7 +248,7 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
  	int n;
  	
  	memset(buffer, 0, MAX_DGRAM_SIZE);
- 	printf("Receiving packet...\n");
+ 	//printf("Receiving packet...\n");
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
  	} else {
