@@ -63,12 +63,15 @@
     return 0;
 }*/
 
-int request_list(int sd, struct sockaddr_in addr)
+int request_list(int sd, struct sockaddr_in addr, int sequence)
 {
     socklen_t addrlen = sizeof(addr);
     //char buff[MAXLINE]; NO PACKETS
     int n;
     Packet* pk;
+    int recv_base = sequence;
+    int send_base = recv_base;
+    int size;
     
     printf("\033[1;34m--- FILELIST ---\033[0m\n");
     /*
@@ -86,13 +89,40 @@ int request_list(int sd, struct sockaddr_in addr)
     	fprintf(stderr, "Error: couldn't malloc packet.\n");
     	return 0;
     }
+  
     
     while ((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen)) != -1) {
-        if(n == 0){
+        if(pk->data_size == 0){
             return 0;
-        }else{
-            printf("%s\n", pk->data);
         }
+     
+        if (pk->seq == recv_base) {
+        	printf("%d.\n", pk->seq);
+        	printf("%s\n", pk->data);
+        	
+            	recv_base++;
+            	send_base = pk->seq;
+            	
+       	// Send ack ...
+       	pk = create_packet("ack", send_base, strlen("ack"), "ack");
+       	
+       	/*printf("--PACKET #%d: \n", pk->seq);
+		printf("  type:      %s \n", pk->type);
+		printf("  seq:       %d  \n", pk->seq);
+		printf("  data_size: %ld  \n", pk->data_size);
+		printf("  data:      %s  \n\n\n", pk->data);*/
+       	
+       	if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+       		fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->seq);
+       		return 0;
+       	}
+       	
+         } else {
+         	// Store packet data ...
+            	// Send last ackd
+            	printf("Do something for reliability.\n");
+            	return 0;
+         }
     }
     
     free(pk->type);
@@ -108,7 +138,7 @@ int request_list(int sd, struct sockaddr_in addr)
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_get(int sd, struct sockaddr_in addr, char* filename)
+int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
 {
     FILE *fp;
     socklen_t addrlen = sizeof(addr);
@@ -119,6 +149,9 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     char* recvline;
     int n, sum = 0;
     Packet* pk;
+    Packet* pack;
+    int send_base = sequence+1;
+    int size;
 
     //Open the file to write on
     fp = fopen(filename, "w+");
@@ -144,9 +177,17 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     } 
     */
     
+    //Retrive the dimension of the file to allocate
+    
     pk = (Packet*)malloc(sizeof(Packet));
     if (pk == NULL) {
     	fprintf(stderr, "Error: couldn't malloc packet.\n");
+    	return 0;
+    }
+    
+    pack = (Packet*)malloc(sizeof(Packet));
+    if (pk == NULL) {
+    	fprintf(stderr, "Error: couldn't malloc packet ack.\n");
     	return 0;
     }
     
@@ -159,7 +200,26 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
         }
     } else {
     	fprintf(stderr, "Error: couldn't retrieve dimension of file %s", filename);
+    	send_base = pk->seq;
+    	memset(pk->data, 0, pk->data_size);
+    	memset(pk->type, 0, strlen(pk->type));
+    	free(pk->data);
     }
+    
+    // Send ack
+    pack = create_packet("ack", send_base, strlen("ack"), "ack");
+    
+    printf("--PACKET #%d: \n", pack->seq);
+    printf("  type:      %s \n", pack->type);
+    printf("  seq:       %d  \n", pack->seq);
+    printf("  data_size: %ld  \n", pack->data_size);
+    printf("  data:      %s  \n\n\n", pack->data);
+    
+    if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	fprintf(stderr, "Error: couldn't send ack.\n");
+    	return 0; 
+    }
+    
     
     // Receive file content
     
@@ -191,6 +251,20 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
             printf("Bytes read: %d\n", sum);
         }
 
+	// Send ack
+        pack = create_packet("ack", send_base, strlen("ack"), "ack");
+    
+        printf("--PACKET #%d: \n", pack->seq);
+        printf("  type:      %s \n", pack->type);
+        printf("  seq:       %d  \n", pack->seq);
+        printf("  data_size: %ld  \n", pack->data_size);
+        printf("  data:      %s  \n\n\n", pack->data);
+    
+        if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	    fprintf(stderr, "Error: couldn't send ack.\n");
+    	    return 0; 
+        }
+
         // Convert byte array to image
         write_size += fwrite(pk->data, 1, pk->data_size, fp);
         printf("write_size = %ld/%ld.\n", write_size, max_size);
@@ -200,6 +274,9 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     free(pk->data);
     free(pk->type);
     free(pk);
+    /*free(pack->data);
+    free(pack->type);
+    free(pack);*/
     fclose(fp);
     free(recvline);
     printf("Done.\n"); 
@@ -213,7 +290,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_put(int sd, struct sockaddr_in addr, char *filename)
+int request_put(int sd, struct sockaddr_in addr, char *filename, int sequence)
 {
     FILE *fp;
     socklen_t addrlen = sizeof(addr);
@@ -222,8 +299,18 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     char buff[MAXLINE];
     char* sendline;
     Packet* pk;
+    Packet* pack;
     int size;
     int i;
+    int send_base = sequence;
+    int rcvd = 0;
+    
+    // Allocate packet for packet.
+    pack = (Packet*)malloc(sizeof(Packet));
+    if (pack == NULL) {
+    	fprintf(stderr, "Error: couldn't malloc packet ack.\n");
+    	return 0;
+    }
     
     //Wait for the "all clear" of the server
     if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) == 0) {
@@ -257,7 +344,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         printf("File dimension correctly sent.\n");
     }*/
     
-    pk = create_packet("data", 0, strlen(buff), buff);
+    pk = create_packet("data", send_base, strlen(buff), buff);
     
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
     	fprintf(stderr, "Error: couldn't send the dimension packet to server.\n");
@@ -266,6 +353,27 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     } else {
     	printf("File dimension correctly sent.\n");
     }
+    
+    // Receive ack
+    if (recv_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+    	fprintf(stderr, "Error: couldn't receive ack packet.\n");
+    	return 1;
+    } else {
+    	printf("--PACKET #%d: \n", pack->seq);
+        printf("  type:      %s \n", pack->type);
+        printf("  seq:       %d  \n", pack->seq);
+        printf("  data_size: %ld  \n", pack->data_size);
+        printf("  data:      %s  \n\n\n", pack->data);
+        
+        if ((pack->seq == send_base) && strcmp(pack->type, "ack") == 0) {
+        	printf("Ack OK.\n");
+        	send_base++;
+        } else {
+        	printf("Ack NO OK.\n");
+        	return 1;
+        }
+    }
+    
     
     // Send data content
     
@@ -299,10 +407,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         exit(EXIT_FAILURE);
     }
     
-    i = 0;
-    
     while(!feof(fp)) {
-    	i++;
     
         //Read from the file into our send buffer
         read_size = fread(sendline, 1, PAYLOAD, fp);
@@ -310,8 +415,10 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         printf("PAYLOAD = %d", PAYLOAD);
         printf("sendline = %s\n", sendline);
         
+        rcvd += read_size;
+        printf("Bytes sent: %d/%d.\n", rcvd, max_size);
         //Send data through our socket
-        pk = create_packet("data", i, read_size, sendline);
+        pk = create_packet("data", send_base, read_size, sendline);
          
         //printf("%d bytes sent to client.\n", n);
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
@@ -319,6 +426,27 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
+        
+        // Receive ack
+    	if (recv_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+    		fprintf(stderr, "Error: couldn't receive ack packet.\n");
+    		return 1;
+    	} else {
+    		printf("--PACKET #%d: \n", pack->seq);
+        	printf("  type:      %s \n", pack->type);
+        	printf("  seq:       %d  \n", pack->seq);
+        	printf("  data_size: %ld  \n", pack->data_size);
+        	printf("  data:      %s  \n\n\n", pack->data);
+        
+        	if ((pack->seq == send_base) && strcmp(pack->type, "ack") == 0) {
+        		printf("Ack OK.\n");
+        		send_base++;
+       	} else {
+        		printf("Ack NO OK.\n");
+        		return 1;
+        	}
+    	}
+        
         
         free(pk);
         memset(sendline, 0, MAX_DGRAM_SIZE);
@@ -347,6 +475,7 @@ int main(int argc, char* argv[])
     char *tok, *filename;
     Packet* pk;
     int size;
+    int init_seq;
     
     //Check command line
     if (argc < 2) {
@@ -385,15 +514,12 @@ int main(int argc, char* argv[])
 
         #endif 
         
-        pk = create_packet("data", 0, strlen(buff), buff);
+        /** INITIALIZE SEQUENCE NUMBER **/
+        init_seq = rand_lim(50);
         
-        /*
-        while (sendto(sockfd, buff, strlen(buff), 0, (struct sockaddr*)&servaddr, addrlen) == -1) { NO PACKETS
-            if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
-                continue;
-            }
-        }
-        */
+        pk = create_packet("conn", init_seq, strlen(buff), buff);
+        
+        // Send first packet to initialize sequence number
         
         while (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &size) == -1) {
         	if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
@@ -403,6 +529,25 @@ int main(int argc, char* argv[])
         
         printf("\n\033[0;32mInput successfully sent.\033[0m\n");
         
+        // Receive second packet to initialize connection with the same sequence number
+        
+        while (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
+        	if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
+                	continue;
+            	}
+        }
+        
+        if (pk->seq != init_seq) {
+        	fprintf(stderr,"Error: packet #%d lost.\n", init_seq);
+        	exit(EXIT_FAILURE);
+        }
+        
+        printf("INITIAL SEQUENCE NUMBER = %d.\n\n", init_seq);
+      	/** END **/
+        
+        
+        /* CHOOSE OPERATION BY COMMAND */
+        
         //Retrieve command       
         tok = strtok(buff, " \n");
         printf("\033[0;34mInput selected:\033[0m %s\n", tok);
@@ -411,8 +556,8 @@ int main(int argc, char* argv[])
         if (strcmp(tok, "list") == 0) {
 
             //Execute LIST
-            res = request_list(sockfd, servaddr);
-
+            res = request_list(sockfd, servaddr, init_seq);
+	    
         } else if (strcmp(tok, "get") == 0) {
 
             //Execute GET
@@ -424,7 +569,7 @@ int main(int argc, char* argv[])
             filename = strdup(tok);
             printf("Filename: %s\n", filename);
 
-            res = request_get(sockfd, servaddr, filename);
+            res = request_get(sockfd, servaddr, filename, init_seq);
 
         } else if (strcmp(tok, "put") == 0) {
 
@@ -437,7 +582,7 @@ int main(int argc, char* argv[])
             filename = strdup(tok);
             printf("Filename: %s\n", filename);
 
-            res = request_put(sockfd, servaddr, filename);
+            res = request_put(sockfd, servaddr, filename, init_seq);
 
         } else {
             failure("\033[0;31mError: couldn't retrieve input.\033[0m\n");

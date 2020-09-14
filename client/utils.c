@@ -1,7 +1,7 @@
-/*UTILS.C*/
+/*UTILS.C - CLIENT SIDE*/
 
 #include "client_test.h"
-#define PAYLOAD 200000
+#define MAXSIZE 200000
 
 /*typedef struct message {
 	char* type;
@@ -26,32 +26,32 @@ Packet* create_packet(char* type, int seq_num, size_t size, char* data)
 		fprintf(stderr, "Error: Malloc() packet #%d.\n", seq_num);
 		return NULL;
 	} else {
-		//printf("Packet #%d successfully allocated.\n", seq_num);
+		printf("Packet #%d successfully allocated.\n", seq_num);
 	}
 	
 	//pack->data = NULL;
 	
-	pack->type = type;
+	memset(pack->type, 0, 5);
+	strcpy(pack->type, type);
 	pack->seq = seq_num;
 	pack->data_size = size;
 	
-	pack->data = (char*)malloc(pack->data_size);
+	/*pack->data = (char*)malloc(pack->data_size);
 	if (pack->data == NULL) {
 		fprintf(stderr, "Error: malloc() pack->data.\n");
 		return NULL;
 	} else {
-		//printf("pack->data allocated successfully.\n\n");
-	}
-	
+		printf("pack->data allocated successfully.\n\n");
+	}*/
+	memset(pack->data, 0, PAYLOAD);
 	memcpy(pack->data, data, pack->data_size);
 	
-	/*
 	printf("--PACKET: \n");
 	printf("  type:      %s \n", pack->type);
 	printf("  seq:       %d  \n", pack->seq);
 	printf("  data_size: %ld  \n", pack->data_size);
 	printf("  data:      %s  \n\n\n", pack->data);
-	*/
+	
 	return pack;
 }
 
@@ -67,24 +67,30 @@ char* serialize_packet(char* buffer, Packet* packet, int* buf_size)
 	char seq_num[MAXLINE];
 	char size[MAXLINE];
     	
-
+	memset(buffer, 0, strlen(packet->type));
 	memcpy(buffer, packet->type, strlen(packet->type));
 
+	memset(buffer+strlen(packet->type), 0, 1);
 	memcpy(buffer+strlen(packet->type), " ", 1);
 
 	sprintf(seq_num, "%d", packet->seq);
+	memset(buffer+strlen(packet->type)+1, 0, strlen(seq_num));
 	memcpy(buffer+strlen(packet->type)+1, seq_num, strlen(seq_num));
 	
+	memset(buffer+strlen(packet->type)+1+strlen(seq_num), 0, 1);
 	memcpy(buffer+strlen(packet->type)+1+strlen(seq_num), " ", 1);
 	
 	sprintf(size, "%ld", packet->data_size);
+	memset(buffer+strlen(packet->type)+1+strlen(seq_num)+1, 0, strlen(size));
 	memcpy(buffer+strlen(packet->type)+1+strlen(seq_num)+1, size, strlen(size));
 	
-	
+	memset(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size), 0, 1);
 	memcpy(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size), " ", 1);
 
+	memset(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1, 0, packet->data_size);
 	memcpy(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1, packet->data, packet->data_size);   	
 	    	
+	memset(buffer+strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1+packet->data_size, 0, PAYLOAD-(packet->data_size));
 	printf("\nPacket #%d serialized.\n\n", packet->seq);
 	printf("-- buffer = %s\n\n", buffer);
 	*buf_size = strlen(packet->type)+1+strlen(seq_num)+1+strlen(size)+1+packet->data_size;
@@ -106,7 +112,7 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 	char seq[5];
 	char size[MAXLINE];
 	char *data = NULL;
-	char *buf_cpy;
+	char *buf_cpy = NULL;
 	int hdr_size;
 	int data_size;
 	int max_size;
@@ -134,7 +140,7 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 	
 	data_size = atoi(size);
 	
-	//printf("boh.\n");
+	printf("boh.\n");
 	data = (char*)malloc(data_size);
 	if (data == NULL) {
 		fprintf(stderr, "Error: malloc() data.\n");
@@ -142,43 +148,60 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
 	} else {
 		//printf("malloc() data successful.\n");
 	}
-	//printf("bruh.\n");
+	printf("bruh.\n");
 	
 	hdr_size = strlen(type)+1+strlen(seq)+1+strlen(size)+1;
 	
+	printf("It's you? (0) ");
 	memcpy(data, buffer+hdr_size, data_size);
+	printf("No it isn't (0)\n");
 	//printf("data = %s\n", data);
 	
-	
-	packet->type = (char*)malloc(strlen(type)+1);
+	/*packet->type = (char*)realloc(packet->type, strlen(type)+1);
 	if (packet->type == NULL) {
 		fprintf(stderr, "Error: couldn't malloc packet->type.\n");
 		return NULL;
 	} else {
 		//printf("packet->type successfully allocated.\n");
-	}
+	}*/
+	printf("It's you? (1) ");
+	memset(packet->type, 0, 5);
 	strcpy(packet->type , type);
+	printf("No it isn't (1)\n");
 	
+	printf("here 1.\n");
 	packet->seq = atoi(seq);
+	printf("here 2.\n");
 	packet->data_size = data_size;
+	printf("here 3.\n");
 	
-	packet->data = (char*)malloc(packet->data_size);
+	printf("packet->data_size = %ld.\n", packet->data_size);
+	/*if (packet->data != NULL) {
+		free(packet->data);
+		printf("packet->data freed.\n");
+	}*/
+	
+	/*packet->data = (char*)realloc(packet->data, packet->data_size);
+	printf("here 4.\n");
 	if (packet->data == NULL) {
 		fprintf(stderr, "Error: malloc() packet->data.\n");
 		return NULL;
 	} else {
-		//printf("packet->data malloc successful.\n");
-	}
+		printf("packet->data malloc successful.\n");
+	}*/
 	
+	printf("It's you? (2) ");
+	memset(packet->data, 0, PAYLOAD);
 	memcpy(packet->data, data, packet->data_size);
+	printf("No it isn't (2)\n");
 	
-	/*printf("\nPacket #%d unserialized.\n\n", packet->seq);
+	printf("\nPacket #%d unserialized.\n\n", packet->seq);
 	printf("--PACKET #%d: \n", packet->seq);
 	printf("  type:      %s \n", packet->type);
 	printf("  seq:       %d  \n", packet->seq);
 	printf("  data_size: %ld  \n", packet->data_size);
 	printf("  data:      %s  \n\n\n", packet->data);
-	*/
+	
 	free(buf_cpy);
 	free(data);
 	
@@ -201,10 +224,11 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
  	serialize_packet(buffer, pkt, size);
  	len = *size;
  	
+ 	printf("Sending packet...\n");
  	if ((n = sendto(socket, buffer, len, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
     	} else {
- 		//printf("Packet #%d sent successfully.\n\n", pkt->seq);
+ 		printf("Packet #%d sent successfully.\n\n", pkt->seq);
  		memset(buffer, 0, MAX_DGRAM_SIZE);
     	}
     	
@@ -224,7 +248,7 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
  	int n;
  	
  	memset(buffer, 0, MAX_DGRAM_SIZE);
- 	
+ 	printf("Receiving packet...\n");
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
  	} else {
@@ -320,6 +344,26 @@ Packet* unserialize_packet(char* buffer, Packet* packet)
  	return fp;
  	
  }
+ 
+ 
+ /* RAND_LIM 
+ * @brief return a random number between 0 and limit inclusive.
+ * @param limit: limit to the integer randomization
+ * @return retval: random integer generated.
+ */
+
+
+ int rand_lim(int limit) {
+
+    int divisor = RAND_MAX/(limit+1);
+    int retval;
+
+    do { 
+        retval = rand() / divisor;
+    } while (retval > limit);
+
+    return retval;
+}
  
  
  /*int main()

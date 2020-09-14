@@ -27,25 +27,30 @@
 #include <pthread.h>
 #include <dirent.h>
 
+typedef struct message {
+	char type[5];
+	int seq;
+	size_t data_size;
+	char data[PAYLOAD];
+}Packet;
+
 typedef struct node{
 	struct sockaddr_in addr;
+	Packet* pack;
 	char buff[MAX_DGRAM_SIZE];
 	int server;
 	struct node* next;
 }Client;
 
-typedef struct message {
-	char* type;
-	int seq;
-	size_t data_size;
-	char* data;
-}Packet;
-
 extern void buf_clear(char*, int);
 
-extern void insert_client(Client**, struct sockaddr_in, char*, size_t);
+/*extern void insert_client(Client**, struct sockaddr_in, char*, size_t);
 
-extern void get_client(Client**, int, struct sockaddr_in*, char*, size_t);
+extern void get_client(Client**, int, struct sockaddr_in*, char*, size_t);*/
+
+extern void insert_client(Client**, struct sockaddr_in, Packet*);
+
+extern void get_client(Client**, int, struct sockaddr_in*, Packet*);
 
 extern void remove_client(Client**, int);
 

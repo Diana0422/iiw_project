@@ -21,12 +21,15 @@ int sem_client;
 int listensd;
 
 char put_msg[THREAD_POOL][MAX_DGRAM_SIZE+1];
+int seq[THREAD_POOL];
+
 
 Client *cliaddr_head;
 
 typedef struct thread_arg {
  	int thread;
  	size_t datalen;
+ 	Packet* pack;
  }thread_arg;
 
 /*
@@ -124,17 +127,18 @@ typedef struct thread_arg {
 }*/
 
 
-void response_list(int sd, struct sockaddr_in addr)
+void response_list(int sd, struct sockaddr_in addr, int sequence, int thread)
 {
     socklen_t addrlen = sizeof(addr);
-    //char buff[MAXLINE];
     char buff[MAX_DGRAM_SIZE];
     DIR* dirp;
     struct dirent* pdirent;
     Packet *pk;
     int size;
+    int send_base = sequence;
       
     printf("response_list started.\n");
+    memset(buff, 0, MAX_DGRAM_SIZE);
     
     // Ensure we can open directory
     dirp = opendir("files");
@@ -146,34 +150,49 @@ void response_list(int sd, struct sockaddr_in addr)
     // Process each entry in the directory
     //printf("******* FILES *******\n");
     while ((pdirent = readdir(dirp)) != NULL) {
-        //printf("%s\n", pdirent->d_name);
+   
+        printf("%s\n", pdirent->d_name);
         if(!(strcmp(pdirent->d_name, ".") && strcmp(pdirent->d_name, ".."))){ //Ignore the current and parent directory
             continue;
         }
 
         strcpy(buff, pdirent->d_name);
         
-        pk = create_packet("data", 0, strlen(buff), buff);
+        // Send data packet with filename
+        pk = create_packet("data", send_base, strlen(buff), buff);
         
+        printf("Sending packet #%d...", send_base);
+        printf("LIST - send name: ");
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
         	fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq);
         	return;
         }
         
-        /*if (sendto(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, addrlen) == -1) {
-            fprintf(stderr, "Error: couldn't send the filename.\n");
-            return;
+        // Wait for ack...
+        printf("LIST - recv ack: ");
+        int i;
+        
+        pthread_mutex_lock(&put_avb[thread]);
+        i = seq[thread];
+        pthread_mutex_unlock(&put_free[thread]);
+        
+        if (i == send_base) {
+        	printf("Ack OK.\n");
         } else {
-            printf("Filename %s correctly sent.\n", buff);
-        }*/
-
+        	return;
+        }
+        
+        send_base++;
         //buf_clear(buff, MAXLINE);
         memset(buff, 0, MAX_DGRAM_SIZE);
     } 
-
-    if (sendto(sd, NULL, 0, 0, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send the filename.\n");
+    
+    pk = create_packet("data", send_base, 0, NULL);
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
+    } else {
+    	printf("last packet.\n");
     }
 }
 
@@ -184,19 +203,20 @@ void response_list(int sd, struct sockaddr_in addr)
  */
 
 
-void response_get(int sd, struct sockaddr_in addr, char* filename)
+void response_get(int sd, struct sockaddr_in addr, char* filename, int sequence, int thread)
 {
     socklen_t addrlen = sizeof(addr);
-    //char buff[MAXLINE];
+    char mess[MAXLINE];
     char buff[MAX_DGRAM_SIZE];
     char *sendline;
     FILE *fp;
     size_t max_size;
     char path[strlen("files/")+strlen(filename)];
-    int n;
+    int n, i;
     ssize_t read_size;
     Packet* pk;
     int size;
+    int send_base = sequence;
     
     printf("response_get started.\n");
     
@@ -229,7 +249,8 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     
     */
     
-    pk = create_packet("data", 0, strlen(buff), buff);
+    // Send file dimension
+    pk = create_packet("data", send_base, strlen(buff), buff);
     size = strlen(buff);
     
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
@@ -239,8 +260,18 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     	printf("File dimension in packet #%d sent correctly.\n", pk->seq);
     }
     
-    // Send file content
+    // Receive ack
+    pthread_mutex_lock(&put_avb[thread]);
+    i = seq[thread];
+    memcpy(mess, put_msg[thread], strlen(put_msg[thread]));
     
+    if ((i == send_base) && (strcmp(mess, "ack") == 0)) {
+    	printf("Ack OK.\n");
+    }
+    pthread_mutex_unlock(&put_free[thread]);
+    
+    
+    // Send file content
     /*   NO PACKETS
     //Allocate sufficient space to send the file
     if((sendline = (char*)malloc(max_size)) == NULL){
@@ -263,15 +294,14 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
     */
     
     free(pk);
-    int i = 0;
-    
+
     if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
     	perror("Malloc() failed.");
     	exit(-1);
     }
     		
     while(!feof(fp)) {
-    	i++;
+    	send_base++;
         //Read from the file into our send buffer
         read_size = fread(sendline, 1, PAYLOAD, fp);
         printf("Image size read: %ld\n", read_size);
@@ -279,12 +309,22 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
         printf("sendline = %s\n", sendline);
         		
         //Send data through our socket 
-        pk = create_packet("data", i, read_size, sendline);
+        pk = create_packet("data", send_base, read_size, sendline);
         		
         if ((n = send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, &size)) == -1) {
         	fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq);
         	exit(EXIT_FAILURE);
 	}
+	
+	// Receive ack
+    	pthread_mutex_lock(&put_avb[thread]);
+    	i = seq[thread];
+    	memcpy(mess, put_msg[thread], strlen(put_msg[thread]));
+    
+    	if ((i == send_base) && (strcmp(mess, "ack") == 0)) {
+    		printf("Ack OK.\n");
+    	}
+    	pthread_mutex_unlock(&put_free[thread]);
         		
         free(pk);
         memset(sendline, 0, MAX_DGRAM_SIZE);
@@ -304,7 +344,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename)
  */
 
 
-void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
+void response_put(int sd, struct sockaddr_in addr, char* filename, int server, int sequence)
 {
     socklen_t addrlen = sizeof(addr);
     FILE *fp;
@@ -314,13 +354,24 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
     int dgrams, temp, i;
     DIR* dirp;
     struct dirent* pdirent;
+    Packet* pack;
+    int send_base = sequence;
+    int recv_base;
+    int size;
       
     printf("response_put started.\n");
     
     strcpy(path, "files/");
     strcat(path, filename);
+    
+    // Allocate packet for ack
+    pack = (Packet*)malloc(sizeof(Packet));
+    if (pack == NULL) {
+    	fprintf(stderr, "Error: couldn't malloc packet for ack.\n");
+    	return;
+    }
 
-    //Check if the file already exists
+    /*//Check if the file already exists
     dirp = opendir("files");
     if (dirp == NULL) {
         perror("Cannot open directory");
@@ -339,7 +390,7 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
 		    printf("Advertisement correctly sent.\n");
 		    return;
         }
-    }
+    }*/
 
     //Sending an advertisement to client to continue with the operation (maybe avoidable with reliability)
     if (sendto(sd, "OK", 2, 0, (struct sockaddr*)&addr, addrlen) == -1) {
@@ -361,31 +412,72 @@ void response_put(int sd, struct sockaddr_in addr, char* filename, int server)
     pthread_mutex_lock(&put_avb[server]);
     //printf("mutex put_avb[%d] locked.\n", server);
     max_size = atoi(put_msg[server]);
-    pthread_mutex_unlock(&put_free[server]);
+    recv_base = seq[server];
     printf("File size: %ld\n", max_size);
+    printf("put_msg[%d] = %d\n", server, atoi(put_msg[server]));
+    pthread_mutex_unlock(&put_free[server]);
     //printf("mutext put_free[%d] unlocked.\n", server);
+    
+   // Send ack...
+    pack = create_packet("ack", recv_base, strlen("ack"), "ack");
+    
+    if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	fprintf(stderr, "Error: couldn't send ack packet.\n");
+    	return;
+    } else {
+    	recv_base++;
+    }
+    
     
     //Retrieve file content from socket
     if((dgrams = max_size/MAX_DGRAM_SIZE)){ 
         for(i=0; i<dgrams; i++){
             pthread_mutex_lock(&put_avb[server]);
-            //printf("mutex put_avb[%d] locked.\n", server);
+            printf("mutex put_avb[%d] locked.\n", server);
+            
             // Convert byte array to image
             //write_size += fwrite(put_msg[server], 1, MAX_DGRAM_SIZE, fp);
             write_size += fwrite(put_msg[server], 1, PAYLOAD, fp);
-
+            recv_base = seq[server];
+            
             pthread_mutex_unlock(&put_free[server]);
-            //printf("mutex put_free[%d] unlocked.\n", server);
+            printf("mutex put_free[%d] unlocked.\n", server);
+            
+            // Send ack...
+    	    pack = create_packet("ack", recv_base, strlen("ack"), "ack");
+    
+            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	    	fprintf(stderr, "Error: couldn't send ack packet.\n");
+    		return;
+    	    } else {
+    		recv_base++;
+    	    }
+            
+    	    printf("retrieving another chunk...\n");
         }
     }
+    
 
-    if((temp = max_size%MAX_DGRAM_SIZE)){
+    if((temp = max_size%PAYLOAD)){
         pthread_mutex_lock(&put_avb[server]); 
         //printf("mutex put_avb[%d] locked.\n", server);       
+        
         // Convert byte array to image
         write_size += fwrite(put_msg[server], 1, temp, fp);
+        recv_base = seq[server];
+     
         pthread_mutex_unlock(&put_free[server]);
         //printf("mutex put_free[%d] unlocked.\n", server);
+        
+        // Send ack...
+    	pack = create_packet("ack", recv_base, strlen("ack"), "ack");
+    
+        if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
+    	    	fprintf(stderr, "Error: couldn't send ack packet.\n");
+    		return;
+    	} else {
+    		recv_base++;
+    	}
     }
      
     printf("Bytes written: %d\n", (int)write_size);
@@ -406,6 +498,8 @@ void* thread_service(void* arg){
 	char buff[MAX_DGRAM_SIZE];
 	//int tag = *((int*)p);
 	thread_arg a = *((thread_arg*)arg);
+	Packet* pk = a.pack;
+	int num_seq;
 
     oper.sem_num = 0;
     oper.sem_op = -1;
@@ -429,7 +523,9 @@ void* thread_service(void* arg){
 		//Retrieve client address and request
 		pthread_mutex_lock(&list_mux);
 		//get_client(&cliaddr_head, tag, &address, buff);
-		get_client(&cliaddr_head, a.thread, &address, buff, a.datalen);
+		get_client(&cliaddr_head, a.thread, &address, pk);
+		memcpy(buff, pk->data, pk->data_size);
+		num_seq = pk->seq;
 	    	pthread_mutex_unlock(&list_mux);
 
 	    cmd = strtok(buff, " \n");
@@ -438,7 +534,7 @@ void* thread_service(void* arg){
 	    //SERVE THE CLIENT
 	    if (strcmp(cmd, "list") == 0) {
 	        //Respond to LIST
-	        response_list(listensd, address);
+	        response_list(listensd, address, num_seq, a.thread);
 	    } else if (strcmp(cmd, "get") == 0) {
 	        //Respond to GET
 	        if((cmd = strtok(NULL, " \n")) == NULL){
@@ -449,7 +545,7 @@ void* thread_service(void* arg){
 	        }
 
 	        filename = strdup(cmd);
-	        response_get(listensd, address, filename);
+	        response_get(listensd, address, filename, num_seq, a.thread);
 	    } else if (strcmp(cmd, "put") == 0) {
 	        //Respond to PUT
 	        if((cmd = strtok(NULL, " \n")) == NULL){
@@ -460,7 +556,7 @@ void* thread_service(void* arg){
 	        } 
 	        filename = strdup(cmd);
 	        //response_put(listensd, address, filename, tag);
-	        response_put(listensd, address, filename, a.thread);
+	        response_put(listensd, address, filename, a.thread, num_seq);
 
 	    } else {
 	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
@@ -480,8 +576,9 @@ int main(void)
     pthread_t tid;
     //int index[THREAD_POOL];
     thread_arg* arg[THREAD_POOL];
-    int thread, i, n;
-    Packet* pk;
+    int thread, i, n, size;
+    Packet* pk_rcv = NULL;
+    int init_seq;
 
     char buff[MAX_DGRAM_SIZE];
 
@@ -531,7 +628,7 @@ int main(void)
     		fprintf(stderr, "semctl() failed");
     		exit(-1);
     	}
-	}
+    }
 
 	ops.sem_num = 0;
 	ops.sem_op = 1;
@@ -553,6 +650,7 @@ int main(void)
     for(i=0; i<THREAD_POOL; i++){
     	
     	arg[i] = (thread_arg*)malloc(sizeof(thread_arg));
+    	arg[i]->pack = (Packet*)malloc(sizeof(Packet));
     	arg[i]->thread = i;
     	//index[i] = i;
     	/*if(pthread_create(&tid, 0, (void*)thread_service, (void*)&index[i])){
@@ -572,56 +670,70 @@ int main(void)
     printf("\033[0;34mWaiting for a request...\033[0m\n");
 
     while(1) {
-
+    
+    	/** INITIALIZE SEQUENCE NUMBER- SERVER **/
+redo:
         memset(buff, 0, MAX_DGRAM_SIZE);
-
-        /*if ((n = recvfrom(listensd, buff, MAX_DGRAM_SIZE, 0, (struct sockaddr*)&cliaddr, &cliaddrlen)) == -1) {
-        	perror("recvfrom() failed");
-        	close(listensd);
-	        exit(-1);
-	    }
-	  NO PACKETS
-	 */
 	 
-	// Receive request from client
-	pk = (Packet*)malloc(sizeof(Packet));
-	if (pk == NULL) {
+	// Receive request from client and initialize sequence number
+	pk_rcv = (Packet*)malloc(sizeof(Packet));
+	if (pk_rcv == NULL) {
 		fprintf(stderr, "Error: couldn't malloc packet.\n");
 		exit(EXIT_FAILURE);
 	}
-
-	if ((n = recv_packet(pk, listensd, (struct sockaddr*)&cliaddr, cliaddrlen)) == -1) {
+	
+	if ((n = recv_packet(pk_rcv, listensd, (struct sockaddr*)&cliaddr, cliaddrlen)) == -1) {
 		fprintf(stderr, "Error: couldn't receive packet.\n");
 		exit(EXIT_FAILURE);
+	} else {
+		//strcpy(buff, pk->data);
+		printf("MAIN: Packet received...\n");
+		printf("4.\n");
+		memcpy(buff, pk_rcv->data, pk_rcv->data_size);
 	}
 	
-	/*printf("--PACKET #%d: \n", pk->seq);
-	printf("  type:      %s \n", pk->type);
-	printf("  seq:       %d  \n", pk->seq);
-	printf("  data_size: %ld  \n", pk->data_size);
-	printf("  data:      %s  \n\n\n", pk->data);*/
+	printf("--PACKET #%d: \n", pk_rcv->seq);
+	printf("  type:      %s \n", pk_rcv->type);
+	printf("  seq:       %d  \n", pk_rcv->seq);
+	printf("  data_size: %ld  \n", pk_rcv->data_size);
+	printf("  data:      %s  \n\n\n", pk_rcv->data);
+	
+	if (strcmp(pk_rcv->type, "conn") == 0) {
+		// Resend the packet to the client to initialize connection
+		if (send_packet(pk_rcv, listensd, (struct sockaddr*)&cliaddr, cliaddrlen, &size) == -1) {
+			fprintf(stderr, "Error: couldn't initialize sequence number.\n");
+			printf("\033[0;34mWaiting for a request...\033[0m\n");
+			goto redo;
+		}
+		
+		init_seq = pk_rcv->seq;
+		printf("INITIAL SEQUENCE NUMBER = %d.\n\n", init_seq);
+	}
+	
+	if (strcmp(pk_rcv->type, "ack") == 0) {
+		printf("Do something for ack.\n");
+	}
+	
+	/** END **/
 	
 	//Check if the client is still being served
 	if(dispatch_client(cliaddr_head, cliaddr, &thread)){
 	    printf("\033[0;32mClient already queued!\033[0m\n");
             
 	    pthread_mutex_lock(&put_free[thread]);
-	    //memcpy(put_msg[thread], buff, n);
-	    memcpy(put_msg[thread], pk->data, pk->data_size);
-	    printf("put_msg[thread] = %s.\n", pk->data);
+	    memset(put_msg[thread], 0, MAX_DGRAM_SIZE);
+	    memcpy(put_msg[thread], pk_rcv->data, pk_rcv->data_size);
+	    seq[thread] = pk_rcv->seq;
+	    printf("put_msg[%d] = %s.\n", thread, pk_rcv->data);
+	    printf("seq[%d] = %d.\n", thread, seq[thread]);
 	    pthread_mutex_unlock(&put_avb[thread]);
-	    
-	    free(pk->type);
-	    free(pk->data);
-	    free(pk);
 
 	}else{
 	    printf("\033[0;34mReceived a new request.\033[0m\n");
 		
 	    //Add new client address to list
 	    pthread_mutex_lock(&list_mux);
-	    //insert_client(&cliaddr_head, cliaddr, buff);
-	    insert_client(&cliaddr_head, cliaddr, pk->data, pk->data_size);
+	    insert_client(&cliaddr_head, cliaddr, pk_rcv);
 	    pthread_mutex_unlock(&list_mux);
 	       
 	    //Signal the serving threads 
@@ -634,8 +746,12 @@ int main(void)
 		}
 	    }
 	}
-		
+	
+//}      
+	memset(pk_rcv->data, 0, pk_rcv->data_size);
        printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
     }
+    
+
     exit(0);
 }

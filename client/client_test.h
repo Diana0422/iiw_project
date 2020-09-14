@@ -23,12 +23,13 @@
 
 #define MAXLINE 5036
 #define MAX_DGRAM_SIZE 65505
+#define PAYLOAD 65400
 
 typedef struct message {
-	char* type;
+	char type[5];
 	int seq;
 	size_t data_size;
-	char* data;
+	char data[PAYLOAD];
 }Packet;
 
 #endif /* client_test_h */
@@ -38,7 +39,6 @@ int check_failure(const char*);
 int failure(const char*);
 
 void buf_clear(char*);
-
 
 extern Packet* create_packet(char*, int, size_t, char*);
 
