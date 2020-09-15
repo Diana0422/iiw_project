@@ -124,9 +124,6 @@ int request_list(int sd, struct sockaddr_in addr, int sequence)
             	return 0;
          }
     }
-    
-    free(pk->type);
-    free(pk->data);
     free(pk);
     return 1;
 }
@@ -271,8 +268,6 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
     }
       
     printf("Bytes written: %d\n", (int)max_size);
-    free(pk->data);
-    free(pk->type);
     free(pk);
     /*free(pack->data);
     free(pack->type);
