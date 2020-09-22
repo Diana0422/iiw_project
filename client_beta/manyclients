@@ -1,0 +1,8 @@
+#!/bin/bash
+
+for N in {1..50}
+do
+	time yes list | ./client 127.0.0.1
+	#time yes get testo.txt | ./client 127.0.0.1
+	#time yes put testo1.txt | ./client 127.0.0.1
+done
