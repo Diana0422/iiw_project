@@ -54,22 +54,23 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet){
         new->next = curr;
     }
     
-    //printf("Client inserted: ");
-    //print_list(*h);
+    //AUDIT
+    printf("Client inserted: ");
+    print_list(*h);
 }
 
 void get_client(Client **h, int thread, Client** client_info){
 
     Client *node = *h;
 
-    //printf("Get client.\n");
-
     while(node != NULL){
         if(node->server < 0){
             node->server = thread;
             *client_info = node;
-            //printf("Client acquired: ");
-            //print_list(*h);
+
+            //AUDIT
+            printf("Client acquired: ");
+            print_list(*h);
             
             return;
         }

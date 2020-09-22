@@ -35,7 +35,7 @@ int request_list(int sd, struct sockaddr_in addr)
     /**VARIABLE DEFINITIONS**/
     socklen_t addrlen = sizeof(addr);
     int interv, i, j=1;
-    Packet *pk, *pack;
+    Packet *pk;
     /**END**/
 
     //Prepare to receive packets
@@ -44,7 +44,8 @@ int request_list(int sd, struct sockaddr_in addr)
     pk = (Packet*)malloc(sizeof(Packet));
     if (pk == NULL) {
     	failure("Error: couldn't malloc packet.");
-    }    
+    }   
+ 
     //Retreive packets
     while (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) != -1) {
 
@@ -56,14 +57,13 @@ int request_list(int sd, struct sockaddr_in addr)
             }
 
             //Send ACK for the last correctly received packet
-            pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+            pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+                fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
                 free(pk);
-                free(pack);
                 return 1;
             } 
-            free(pack);          
+            free(pk);          
         }
 
         //Packet received in order: gets read by the client
@@ -87,32 +87,30 @@ int request_list(int sd, struct sockaddr_in addr)
             }
         	
             //Send ACK: ack_num updated to the byte the client is waiting to receive                       	
-       	    pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-           	if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-           		fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+       	    pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
+           	if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+           		fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
                 free(pk);
-                free(pack);
            		return 1;
            	}
-            free(pack);
-       	
+            free(pk);
+       	    printf("send_next = %d - rcv_next = %d", send_next, rcv_next); 
         } else {
             //Packet received out of order: store packet in the receive buffer
          	if(store_pck(pk, rcv_buffer, MAX_BUFF_SIZE)){
 
                 //Send ACK for the last correctly received packet
-            	pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-                if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                    fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+            	pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
+                if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+                    fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
                     free(pk);
                     return 1;
                 }
-                free(pack);
+                free(pk);
 
             }else{
                 printf("Buffer Overflow. NEED FLOW CONTROL\n");
                 free(pk);
-                free(pack);
                 return 1;
             }      	
         }
@@ -470,7 +468,31 @@ int main(int argc, char* argv[])
         #endif 
      
         /* CHOOSE OPERATION BY COMMAND */
-        
+
+        //Send request
+        pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
+        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
+            fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq_num);
+            free(pk);
+            return 1;
+        }
+        send_next += (int)pk->data_size;
+
+        //Wait for ACK
+        if (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
+            failure("Error: couldn't receive ack packet.");
+        } else {               
+            if ((pk->type == ACK) && (pk->ack_num > send_una)) {
+                printf("Ack OK.\n");
+                send_una = (int)pk->ack_num;
+                //RESTART TIMER IF send_una < send_next 
+            } else {
+                printf("Ack NOT OK.\n");
+                return 1;
+            }
+        }
+        free(pk);
+
         //Retrieve command       
         tok = strtok(buff, " \n");
         printf("\033[0;34mInput selected:\033[0m %s\n", tok);

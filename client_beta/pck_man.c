@@ -114,7 +114,7 @@ Packet unserialize_packet(char* buffer)
 	strcpy(token, strtok(NULL, DELIMITER));
 	type = atoi(token);
 	pk->type = (packet_type)type;
-	
+
 	return *pk;
 }
     
@@ -130,9 +130,11 @@ Packet unserialize_packet(char* buffer)
  	char buffer[MAX_DGRAM_SIZE];
  	int n;
  	
+ 	//AUDIT
  	print_packet(*pkt);
+
  	strcpy(buffer, serialize_packet(pkt));
- 	
+
  	printf("Sending packet...\n\n");
  	if ((n = sendto(socket, buffer, strlen(buffer), 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
@@ -158,8 +160,10 @@ Packet unserialize_packet(char* buffer)
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
  	} else {
- 		printf("Packet received.\n");
  		*pkt = unserialize_packet(buffer);
+
+ 		//AUDIT
+ 		printf("Received packet:\n");
  		print_packet(*pkt);
 	} 
 	

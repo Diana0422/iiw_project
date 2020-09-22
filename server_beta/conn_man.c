@@ -2,7 +2,7 @@
 
 int handshake(Packet* pk, int* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen)
 {
-    *init_seq = rand_lim(50);
+    *init_seq = rand_lim(1000000);
 
     pk = create_packet(*init_seq, 0, 0, (char*)NULL, SYNACK);
 

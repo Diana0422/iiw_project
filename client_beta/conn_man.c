@@ -13,7 +13,7 @@ void handshake(Packet* pk, int* init_seq, int* init_ack, int sockfd, struct sock
     }
 
     //Wait for confirmation
-    printf("Client wait for SYNACK packet.\n");
+    printf("Client waiting for SYNACK packet.\n");
     while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
@@ -26,8 +26,8 @@ void handshake(Packet* pk, int* init_seq, int* init_ack, int sockfd, struct sock
     }
    
     //Close the handshake
-    *init_ack = pk->seq_num+1;
-    *init_seq = rand_lim(50);
+    *init_ack = pk->seq_num + 1;
+    *init_seq = rand_lim(100000);
 
     free(pk);
     pk = create_packet(*init_seq, *init_ack, 0, NULL, ACK);    
