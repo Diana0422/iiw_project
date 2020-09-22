@@ -1,6 +1,6 @@
 #include "server.h"
 
-#define DELIMITER ";;;"
+#define DELIMITER ";"
 
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
@@ -22,7 +22,11 @@ Packet* create_packet(int seq_num, int ack_num, size_t size, char* data, packet_
 	pack->ack_num = ack_num;
 	pack->data_size = size;
 	memset(pack->data, 0, PAYLOAD);
-	memcpy(pack->data, data, pack->data_size);
+	if(size == 0){
+		strcpy(pack->data, "NULL");
+	}else{
+		strcpy(pack->data, data);
+	}
 	pack->type = type;
 	
 	return pack;
@@ -59,11 +63,7 @@ char* serialize_packet(Packet* packet)
 	strcat(buffer, size);
 	strcat(buffer, DELIMITER);
 
-	if(packet->data == NULL){
-		strcat(buffer, "NULL");
-	}else{
-		strcat(buffer, packet->data);
-	}
+	strcat(buffer, packet->data);
 	strcat(buffer, DELIMITER);
 
 	strcat(buffer, type_str);
@@ -111,18 +111,10 @@ Packet unserialize_packet(char* buffer)
 	strcpy(pk->data, token);
 	memset(token, 0, strlen(token));
 
-	printf("0...\n\n");
 	strcpy(token, strtok(NULL, DELIMITER));
-	printf("1...\n\n");
 	type = atoi(token);
-	printf("2...\n\n");
 	pk->type = (packet_type)type;
-	printf("3...\n\n");
 	
-	//AUDIT
-	print_packet(*pk);
-	//
-
 	return *pk;
 }
     
