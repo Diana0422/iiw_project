@@ -1,6 +1,6 @@
 #include "server.h"
 
-#define DELIMITER ";"
+#define DELIMITER "|"
 
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
@@ -10,7 +10,7 @@
  
 Packet* create_packet(int seq_num, int ack_num, size_t size, char* data, packet_type type)
 {
-	Packet* pack = NULL;
+	Packet* pack;
 	
 	pack = (Packet*)malloc(sizeof(Packet));
 	if (pack == NULL) {
@@ -90,10 +90,6 @@ Packet unserialize_packet(char* buffer)
 		exit(EXIT_FAILURE);
 	}
 
-	//AUDIT
-	printf("Reconstructing packet...\n\n");
-	//
-
 	strcpy(token, strtok(buffer, DELIMITER));
 	pk->seq_num = atoi(token);
 	memset(token, 0, strlen(token));
@@ -138,8 +134,7 @@ Packet unserialize_packet(char* buffer)
  	if ((n = sendto(socket, buffer, strlen(buffer), 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
 	}
-    	
-    printf("Packet #%d successfully sent.\n\n", pkt->seq_num);
+
     return n;
  }
  
@@ -159,9 +154,6 @@ Packet unserialize_packet(char* buffer)
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
  	} else {
- 		//AUDIT
- 		printf("Packet received.\n");
-
  		*pkt = unserialize_packet(buffer);
 
  		//AUDIT
@@ -207,6 +199,14 @@ void print_packet(Packet pk){
 	}
 
 	printf("Type: %s\nSeq: %d\nAck: %d\nData size: %ld\nData: %s\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size, pk.data);
+	/*int i;
+	for (i = 0; i < PAYLOAD; i++){
+		if(pk.data[i] == '\0'){
+			break;
+		}
+	    printf("%02X", pk.data[i]);
+	}
+	printf("\n\n");*/
 }
 
 /* ORDER_BUFFER 

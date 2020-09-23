@@ -7,7 +7,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define PAYLOAD 65400
+#define PAYLOAD 1024
 
 typedef enum type {DATA, ACK, SYN, SYNACK, FIN, FINACK} packet_type;
 

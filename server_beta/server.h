@@ -4,9 +4,7 @@
 
 #ifndef client_h
 #define client_h
-#define MAXLINE 1024
-#define MAX_DGRAM_SIZE 65505
-#define PAYLOAD 65400
+//#define MAXLINE 1024
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -22,8 +20,12 @@
 #include <string.h>
 #include <errno.h>
 #include <dirent.h>
+#include <stdbool.h>
 
 #include "packet.h"
+
+#define MAX_DGRAM_SIZE 65505
+#define THREAD_POOL	10
 
 typedef struct node{
 	struct sockaddr_in addr;   //Client's address: used for contact

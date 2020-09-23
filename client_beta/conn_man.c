@@ -32,10 +32,14 @@ void handshake(Packet* pk, int* init_seq, int* init_ack, int sockfd, struct sock
     free(pk);
     pk = create_packet(*init_seq, *init_ack, 0, NULL, ACK);    
 
-    printf("Client initializes connection, sending last ACK.\n");     
+    printf("Client initializes connection, sending last ACK and .\n");     
     while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
     }
 }
+
+/*void demolition(){
+
+}*/

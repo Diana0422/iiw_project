@@ -141,9 +141,6 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
     socklen_t addrlen = sizeof(addr);
     size_t max_size;
     ssize_t write_size = 0;
-    //char buff[MAXLINE]; NO PACKETS
-    //char buff[MAX_DGRAM_SIZE];
-    char* recvline;
     int n, sum = 0;
     Packet* pk;
     Packet* pack;
@@ -159,23 +156,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
         printf("File %s successfully opened!\n", filename);
     }   
     
-    //Retrive the dimension of the file to allocate
-    /*
-    if (recvfrom(sd, buff, MAXLINE, 0, (struct sockaddr*)&addr, &addrlen) > 0) {          NO PACKETS
-        max_size = atoi(buff);
-        printf("File size: %ld\n", max_size);
-        if ((recvline = (char*)malloc(max_size)) == NULL) {
-            perror("Malloc() failed.\n");
-            exit(EXIT_FAILURE);
-        }
-    } else {
-        fprintf(stderr, "Error: couldn't retrieve dimension of file %s", filename);
-        return 1;
-    } 
-    */
-    
-    //Retrive the dimension of the file to allocate
-    
+    //Retrive the dimension of the file to allocate    
     pk = (Packet*)malloc(sizeof(Packet));
     if (pk == NULL) {
     	fprintf(stderr, "Error: couldn't malloc packet.\n");
@@ -205,36 +186,10 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
     
     // Send ack
     pack = create_packet("ack", send_base, strlen("ack"), "ack");
-    
-    printf("--PACKET #%d: \n", pack->seq);
-    printf("  type:      %s \n", pack->type);
-    printf("  seq:       %d  \n", pack->seq);
-    printf("  data_size: %ld  \n", pack->data_size);
-    printf("  data:      %s  \n\n\n", pack->data);
-    
     if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
     	fprintf(stderr, "Error: couldn't send ack.\n");
     	return 0; 
     }
-    
-    
-    // Receive file content
-    
-    /*      NO PACKETS
-    while(sum < (int)max_size){
-        // Receive data in chunks of 1024 bytes 
-        if ((n = recvfrom(sd, recvline, max_size, 0, (struct sockaddr*)&addr, &addrlen)) == -1) {
-            perror("Errore: couldn't read file content.\n");
-            exit(EXIT_FAILURE);
-        } else {
-            sum += n;
-            printf("Bytes read: %d\n", sum);
-        }
-
-        // Convert byte array to image
-        write_size += fwrite(recvline, 1, n, fp);
-    }
-    */
     
     while(sum < (int)max_size){
     	
@@ -250,13 +205,6 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
 
 	// Send ack
         pack = create_packet("ack", send_base, strlen("ack"), "ack");
-    
-        printf("--PACKET #%d: \n", pack->seq);
-        printf("  type:      %s \n", pack->type);
-        printf("  seq:       %d  \n", pack->seq);
-        printf("  data_size: %ld  \n", pack->data_size);
-        printf("  data:      %s  \n\n\n", pack->data);
-    
         if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, &size) == -1) {
     	    fprintf(stderr, "Error: couldn't send ack.\n");
     	    return 0; 
@@ -269,11 +217,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, int sequence)
       
     printf("Bytes written: %d\n", (int)max_size);
     free(pk);
-    /*free(pack->data);
-    free(pack->type);
-    free(pack);*/
     fclose(fp);
-    free(recvline);
     printf("Done.\n"); 
     return 0;
 }

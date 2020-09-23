@@ -1,8 +1,5 @@
 #include "server.h"
 
-#define THREAD_POOL 10
-
-
 /* INSERT_CLIENT 
  * @brief Insert a client that has completed the handshaking into the client list.
  * @param h: head of the client list
@@ -145,7 +142,7 @@ void dispatch_client(Client* h, struct sockaddr_in address, int* server){
  * @return Packet*
  */
 
-void update_packet(Client* h, int thread, Packet* pk){
+void update_packet(Client* h, int thread, Packet *pk){
     Client *prev;
     Client *curr;
 

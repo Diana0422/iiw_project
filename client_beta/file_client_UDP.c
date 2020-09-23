@@ -10,10 +10,8 @@
 
 #define SERV_PORT 5193
 #define DIR_PATH files
-#define MAX_DGRAM_SIZE 65505
 #define INIT_WIN_SIZE 1000000	//Test
 #define MAX_BUFF_SIZE	10
-#define PAYLOAD 65400
 
 Packet* rcv_buffer[MAX_BUFF_SIZE] = {NULL};
 int rcv_next; //The sequence number of the next byte of data that is expected from the server
@@ -94,7 +92,6 @@ int request_list(int sd, struct sockaddr_in addr)
            		return 1;
            	}
             free(pk);
-       	    printf("send_next = %d - rcv_next = %d", send_next, rcv_next); 
         } else {
             //Packet received out of order: store packet in the receive buffer
          	if(store_pck(pk, rcv_buffer, MAX_BUFF_SIZE)){
@@ -133,11 +130,8 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     /**VARIABLE DEFINITIONS**/
     FILE *fp;
     socklen_t addrlen = sizeof(addr);
-    size_t max_size;
     ssize_t write_size = 0;
-    char* recvline;
-    int n, interv, i, sum = 0;
-    int j=1;
+    int n, interv, i, j=1;
     Packet *pk, *pack;
     /**END**/
 
@@ -157,38 +151,74 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
         printf("File %s successfully opened!\n", filename);
     }   
     
-    //RETRIEVING ORDER: dimension -> file...
-
-    //Retrieve the dimension of the file to allocate: it must be the first and only packet to be read in this phase!      
-    while (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) != -1) {
-
-        //Packet received in order: gets read by the client
-        if (pk->seq_num == rcv_next) {
-            max_size = atoi(pk->data);
-            printf("File size: %ld\n", max_size);
-            if ((recvline = (char*)malloc(max_size)) == NULL) {
-                perror("Malloc() failed.\n");
-                free(pk);
-                return 0;
+    /* Receive data in chunks of 65000 bytes */
+    while((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) != -1)){
+    	//Check if transmission has ended.
+    	if(pk->data_size == 0){
+            //Data transmission completed: check if the receive buffer is empty
+            if(rcv_buffer[0] == NULL){
+                printf("Transmission has completed successfully.\n");
+                break;
             }
-            rcv_next += pk->data_size;
 
-            //Send ACK                     
+            //Send ACK for the last correctly received packet
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
+            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+                fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+                free(pack);
+                return 1;
+            } 
+            free(pack); 
+
+        //Check if the received packet is in order with the stream of bytes
+        }else if(pk->seq_num == rcv_next){
+
+        	printf("Received packet #%d.\n", pk->seq_num);
+            //Convert byte array to file
+            write_size += fwrite(pk->data, 1, pk->data_size, fp);
+            rcv_next += (int)pk->data_size;
+
+            //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
+            interv = check_buffer(pk, rcv_buffer);
+            for(i=0; i<interv; i++){
+                //Read every packet in order: everytime from the head of the buffer to avoid gaps in the buffer
+            
+                //Convert byte array to file
+                write_size += fwrite(rcv_buffer[0]->data, 1, rcv_buffer[0]->data_size, fp);
+                rcv_next += (int)rcv_buffer[0]->data_size;
+
+                //Slide the buffered packets to the head of the buffer
+                while(rcv_buffer[j] != NULL){
+                    rcv_buffer[j-1] = rcv_buffer[j];
+                    j++;
+                }
+                rcv_buffer[j-1] = NULL;
+                j=1;
+            }
+
+            memset(pk->data, 0, pk->data_size);
+            
+            //Send ACK: ack_num updated to the byte the client is waiting to receive                        
+            pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
+            printf("Sending ACK.\n");
             if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
                 fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
                 free(pk);
                 free(pack);
                 return 1;
             }
+            printf("ACK #%d correctly sent.\n", pack->ack_num);
             free(pack);
-            break;
         
-        } else {
+        }else{
             //Packet received out of order: store packet in the receive buffer
+            //AUDIT
+            printf("Received packet #%d out of order.\n", pk->seq_num);
+            //
             if(store_pck(pk, rcv_buffer, MAX_BUFF_SIZE)){
 
                 //Send ACK for the last correctly received packet
+                printf("Sending ACK.\n");
                 pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
                 if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
                     fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
@@ -196,94 +226,28 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
                     free(pack);
                     return 1;
                 }
+                printf("ACK #%d correctly sent.\n", pack->ack_num);
                 free(pack);
 
+                memset(pk->data, 0, pk->data_size);
             }else{
                 printf("Buffer Overflow. NEED FLOW CONTROL\n");
                 free(pk);
                 return 1;
             }       
-        }
+        }           
     }
-    
-    //Retrieve data
-    while(sum < (int)max_size){
-    	
-        /* Receive data in chunks of 65000 bytes */
-        if ((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen)) == -1){
-            perror("Error: couldn't receive packet from socket.\n");
-            free(pk);
-            return 1;
 
-        } else {
+    if (n == -1){
+	    perror("Error: couldn't receive packet from socket.\n");
+	    free(pk);
+	    fclose(fp);
+	    return 1;
+	}
 
-            //Packet received in order: gets read by the client
-            if (pk->seq_num == rcv_next) {
-                sum += n;   
-                printf("Bytes read: %d\n", sum);
-
-                //Convert byte array to file
-                write_size += fwrite(pk->data, 1, pk->data_size, fp);
-                printf("write_size = %ld/%ld.\n", write_size, max_size);
-                rcv_next += pk->data_size;
-
-                //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
-                interv = check_buffer(pk, rcv_buffer);
-                for(i=0; i<interv; i++){
-                    //Read every packet in order: everytime from the head of the buffer to avoid gaps in the buffer
-                    sum += n;   
-                    printf("Bytes read: %d\n", sum);
-                    //Convert byte array to file
-                    write_size += fwrite(rcv_buffer[0]->data, 1, rcv_buffer[0]->data_size, fp);
-                    printf("write_size = %ld/%ld.\n", write_size, max_size);
-                    rcv_next += rcv_buffer[0]->data_size;
-                    //Slide the buffered packets to the head of the buffer
-                    while(rcv_buffer[j] != NULL){
-                        rcv_buffer[j-1] = rcv_buffer[j];
-                        j++;
-                    }
-                    rcv_buffer[j-1] = NULL;
-                    j=1;
-                }
-                
-                //Send ACK: ack_num updated to the byte the client is waiting to receive                        
-                pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-                if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                    fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
-                    free(pk);
-                    free(pack);
-                    return 1;
-                }
-                free(pack);
-            
-            } else {
-                //Packet received out of order: store packet in the receive buffer
-                if(store_pck(pk, rcv_buffer, MAX_BUFF_SIZE)){
-
-                    //Send ACK for the last correctly received packet
-                    pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-                    if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                        fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
-                        free(pk);
-                        free(pack);
-                        return 1;
-                    }
-
-                }else{
-                    printf("Buffer Overflow. NEED FLOW CONTROL\n");
-                    free(pk);
-                    return 1;
-                }       
-            }           
-        }
-    }
       
-    printf("Bytes written: %d\n", (int)max_size);
-    free(pk);
-    free(pack);
+    //free(pk);
     fclose(fp);
-    free(recvline);
-    printf("Done.\n"); 
     return 0;
 }
 
@@ -471,11 +435,13 @@ int main(int argc, char* argv[])
 
         //Send request
         pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
+        printf("Sending packet %d\n", send_next);  
         if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
             fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq_num);
             free(pk);
             return 1;
         }
+        printf("Packet #%d correctly sent\n", send_next);
         send_next += (int)pk->data_size;
 
         //Wait for ACK
@@ -483,7 +449,7 @@ int main(int argc, char* argv[])
             failure("Error: couldn't receive ack packet.");
         } else {               
             if ((pk->type == ACK) && (pk->ack_num > send_una)) {
-                printf("Ack OK.\n");
+                printf("Received ACK #%d.\n", pk->ack_num);
                 send_una = (int)pk->ack_num;
                 //RESTART TIMER IF send_una < send_next 
             } else {
@@ -537,10 +503,9 @@ int main(int argc, char* argv[])
             failure("\033[0;31mInput function error.\033[0m\n");
         } else {
             printf("\nOK.\n");
-            //TERMINATE CONNECTION???
+            //TERMINATE CONNECTION: hadler for SIGINT -> terminate connection sending FIN!
         }       
     }
     
-    free(pk);
     exit(0);
 }

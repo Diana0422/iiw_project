@@ -7,7 +7,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define PAYLOAD 65400
+#define PAYLOAD 1024
 
 typedef enum type {DATA, ACK, SYN, SYNACK, FIN, FINACK} packet_type;
 
@@ -15,7 +15,7 @@ typedef struct message {
 	int seq_num;
 	int ack_num;
 	size_t data_size;
-	char data[PAYLOAD];
+	char data[PAYLOAD+1];
 	packet_type type;
 }Packet;
 

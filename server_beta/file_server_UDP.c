@@ -7,10 +7,8 @@
 #include "server.h"
 
 #define SERV_PORT 5193          //Port number used by the server application
-#define MAXLINE 1024            //Maximum dimension of the temporary buffer
-#define PAYLOAD 65400           //Maximum amount of data bytes in a single packet
-#define THREAD_POOL	10          //Number of working thread
-#define MAX_DGRAM_SIZE 65505    //Maximum dimension of a datagram that can be sent through a socket
+//#define MAXLINE 1024            //Maximum dimension of the temporary buffer
+//#define MAX_DGRAM_SIZE 65505    //Maximum dimension of a datagram that can be sent through a socket
 #define INIT_WND_SIZE 10        //Initial dimension of the transmission window
 #define MAX_RVWD_SIZE 10        //Dimension of the receive buffer
 
@@ -43,7 +41,7 @@ void response_list(int sd, int thread, Client* cli_info)
     char* buff;
     int payld = 0;    //Used to insert as much filenames as possibile into one packet (Transmission efficiency)
 
-    int rcv_next = cli_info->pack->seq_num + 1;  //The sequence number of the next byte of data that is expected from the client
+    int rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
     int send_next = cli_info->pack->ack_num;     //The sequence number of the next byte of data to be sent to the client
     int send_una = send_next;                    //The sequence number of the first byte of data that has been sent but not yet acknowledged
     int send_wnd = INIT_WND_SIZE;                //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
@@ -61,6 +59,8 @@ void response_list(int sd, int thread, Client* cli_info)
         free(pk);
         return;
     }
+    printf("ACK #%d correctly sent.\n", pk->ack_num);
+    free(pk);
     
     // Ensure we can open directory
     dirp = opendir("files");
@@ -93,6 +93,7 @@ void response_list(int sd, int thread, Client* cli_info)
                 return;
             }
             send_next += (int)pk->data_size;
+            free(pk);
 
             while((usable_wnd = send_una + send_wnd - send_next) < 0){
                 //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
@@ -118,6 +119,7 @@ void response_list(int sd, int thread, Client* cli_info)
         return;
     }
     send_next += (int)pk->data_size;
+    free(pk);
 
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
@@ -156,17 +158,15 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     struct sockaddr_in addr = cli_info->addr;     //Client address
     socklen_t addrlen = sizeof(addr);
 
-    char buff[MAX_DGRAM_SIZE];
     char *sendline;
 
     FILE *fp;
-    size_t max_size;
     char path[strlen("files/")+strlen(filename)];
     ssize_t read_size;
 
-    Packet* pk;
+    Packet *pk;
 
-    int rcv_next = cli_info->pack->seq_num + 1;    //The sequence number of the next byte of data that is expected from the client
+    int rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;    //The sequence number of the next byte of data that is expected from the client
     int send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
     int send_una = send_next;           //The sequence number of the first byte of data that has been sent but not yet acknowledged
     int send_wnd = INIT_WND_SIZE;       //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
@@ -174,8 +174,20 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     /**END**/
 
     printf("response_get started.\n");
+
+    //Send ACK
+    printf("Sending ACK.\n");
+    pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
+    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
+        free(pk);
+        return;
+    }
+    printf("ACK #%d correctly sent.\n", pk->ack_num);
+    free(pk);
     
     //Open the file
+    memset(path, 0, strlen(path));
     strcat(path, "files/");
     strcat(path, filename);
     
@@ -186,82 +198,65 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     } else {
         printf("File %s correctly opened.\n", filename);
     }
-    
-    //Retrieve the file dimension
-    fseek(fp, 0, SEEK_END);
-    max_size = ftell(fp); 
-    fseek(fp, 0, SEEK_SET);  
-    printf("File size = %ld\n", max_size);
-        
-    //Send the dimension to the server and wait for it to be correctly received
-    sprintf(buff, "%ld", max_size);    
-    pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);    
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send the dimension packet to server.\n");
-        fclose(fp);
-        return;
-    }
-    send_next += (int)pk->data_size;
-    usable_wnd = send_una + send_wnd - send_next;
-    
-    //Wait for ACK
-    pthread_mutex_lock(&mux_avb[thread]);
-    if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-        printf("Ack OK.\n");
-        send_una = cli_info->pack->ack_num;
-        //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
-        //ELSE, STOP TIMER
-    }
-    pthread_mutex_unlock(&mux_free[thread]);
-    
+
     //Allocate space
     if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
     	perror("Malloc() failed.");
     	exit(-1);
     }
-    	
+  
     //Send the file to the client
     while(!feof(fp)) {       
-        //Read from the file and send data
+        //Read from the file and send data   
         read_size = fread(sendline, 1, PAYLOAD, fp);
-        
-        pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);          
+
+        pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
+        printf("Sending packet #%d\n", send_next);          
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
             free(sendline);
+            free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
             return;
         }
+        printf("Packet #%d correctly sent\n", send_next);
         send_next += (int)pk->data_size;
 
         //Check if there's still usable space in the transmission window: if not, wait for an ACK
-        while((usable_wnd = send_una + send_wnd - send_next) < 0){
+        while((usable_wnd = send_una + send_wnd - send_next) == 0){
             //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
             pthread_mutex_lock(&mux_avb[thread]);
             if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-                printf("Ack OK.\n");
+                printf("Received ACK #%d.\n", cli_info->pack->ack_num);
                 send_una = cli_info->pack->ack_num;
                 //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             }
-            pthread_mutex_unlock(&mux_free[thread]);
         }
 
         free(pk);
         memset(sendline, 0, MAX_DGRAM_SIZE);
     }
 
+    pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the filename.\n");
+        return;
+    } else {
+        printf("last packet.\n");
+    }
+
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
         pthread_mutex_lock(&mux_avb[thread]);
         if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-            printf("Ack OK.\n");
+            printf("Received ACK #%d.\n", cli_info->pack->ack_num);
             send_una = cli_info->pack->ack_num;
             //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             //ELSE, STOP TIMER
         }
-        pthread_mutex_unlock(&mux_free[thread]);
     }
     
     free(sendline);
+    free(pk);
     fclose(fp);
 }
 
@@ -435,26 +430,30 @@ void* thread_service(void* arg){
 
 	char* cmd, *filename;       //Used to distinguish requests and files
 
+    bool occup = false;                 //Used to label the worker as occupied untill the client terminates a connection or the connection timout expires
+
 	int id = *((int*)arg);      //Thread ID: used to assign a client to a working thread  
     /**END**/
     
 	while(1){
 
 		//Waiting for a request to serve
-		while(semop(sem_client, &oper, 1) == -1){
-	    	if(errno == EINTR){
-	    		continue;
-	    	}else{
-	    		fprintf(stderr, "semop() failed");
-	    		pthread_exit((void*)-1);
-	    	}
-		}
+        if(!occup){
+            while(semop(sem_client, &oper, 1) == -1){
+                if(errno == EINTR){
+                    continue;
+                }else{
+                    fprintf(stderr, "semop() failed");
+                    pthread_exit((void*)-1);
+                }
+            }
 
-		//Acquire client
-		pthread_mutex_lock(&list_mux);
-		get_client(&cliaddr_head, id, &recipient);
-	    pthread_mutex_unlock(&list_mux);
-
+            //Acquire client
+            pthread_mutex_lock(&list_mux);
+            get_client(&cliaddr_head, id, &recipient);
+            pthread_mutex_unlock(&list_mux);
+        }
+		
 	    //Retrieve request
         pthread_mutex_lock(&mux_avb[id]);
 	    cmd = strtok(recipient->pack->data, " \n");
@@ -470,8 +469,8 @@ void* thread_service(void* arg){
 	    } else if (strcmp(cmd, "get") == 0) {
 	        //Respond to GET
 	        if((cmd = strtok(NULL, " \n")) == NULL){
-	        	printf("Please, insert also the filename.\n");
-	        	remove_client(&cliaddr_head, id, &list_mux);
+	        	//printf("Please, insert also the filename.\n");
+	        	//remove_client(&cliaddr_head, id, &list_mux);
 	        	continue;
 	        }
 
@@ -481,8 +480,8 @@ void* thread_service(void* arg){
 	    } else if (strcmp(cmd, "put") == 0) {
 	        //Respond to PUT
 	        if((cmd = strtok(NULL, " \n")) == NULL){
-	        	printf("Please, insert also the filename.\n");
-	        	remove_client(&cliaddr_head, id, &list_mux);
+	        	//printf("Please, insert also the filename.\n");
+	        	//remove_client(&cliaddr_head, id, &list_mux);
 	        	continue;
 	        } 
 	        filename = strdup(cmd);
@@ -490,11 +489,11 @@ void* thread_service(void* arg){
 
 	    } else {
 	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
-            remove_client(&cliaddr_head, id, &list_mux);
+            //remove_client(&cliaddr_head, id, &list_mux);
             continue;
 	    }
 
-	    remove_client(&cliaddr_head, id, &list_mux);
+	    //remove_client(&cliaddr_head, id, &list_mux);
 	}
 	pthread_exit(0);
 }
@@ -604,7 +603,6 @@ int main(void)
     printf("\033[0;34mWaiting for a request...\033[0m\n");
 
     while(1) {
-
     	//Receive request from client
 		if (recv_packet(pk_rcv, listensd, (struct sockaddr*)&cliaddr, cliaddrlen) == -1) {
 			fprintf(stderr, "Error: couldn't receive packet.\n");
@@ -648,14 +646,14 @@ int main(void)
                 //If the new packet contains an ACK then update instantly the packet: if the client is sending ACK, it is not sending data!
                 if(pk_rcv->type == ACK){
                     update_packet(cliaddr_head, thread, pk_rcv);
+                    pthread_mutex_unlock(&mux_avb[thread]);
                 }else{
                     pthread_mutex_lock(&mux_free[thread]);                
                     //Update the new packet in the client node so that the thread can fetch new data
                     update_packet(cliaddr_head, thread, pk_rcv);
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }
-            }
-			
+            }	
 		}
         printf("\033[0;34mWaiting for a request...\033[0m\n");																	         
     }

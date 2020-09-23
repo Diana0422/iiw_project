@@ -22,8 +22,9 @@
 
 #include "packet.h"
 
-#define MAXLINE 5036
+#define MAXLINE 1024
 #define MAX_DGRAM_SIZE 65505
+#define THREAD_POOL	10
 
 extern int check_failure(const char*);
 

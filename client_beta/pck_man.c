@@ -1,6 +1,6 @@
 #include "client.h"
 
-#define DELIMITER ";"
+#define DELIMITER "|"
 
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
@@ -90,10 +90,6 @@ Packet unserialize_packet(char* buffer)
 		exit(EXIT_FAILURE);
 	}
 
-	//AUDIT
-	printf("Reconstructing packet...\n\n");
-	//
-
 	strcpy(token, strtok(buffer, DELIMITER));
 	pk->seq_num = atoi(token);
 	memset(token, 0, strlen(token));
@@ -135,12 +131,10 @@ Packet unserialize_packet(char* buffer)
 
  	strcpy(buffer, serialize_packet(pkt));
 
- 	printf("Sending packet...\n\n");
  	if ((n = sendto(socket, buffer, strlen(buffer), 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
 	}
-    	
-    printf("Packet #%d successfully sent.\n\n", pkt->seq_num);
+    
     return n;
  }
  
@@ -163,7 +157,6 @@ Packet unserialize_packet(char* buffer)
  		*pkt = unserialize_packet(buffer);
 
  		//AUDIT
- 		printf("Received packet:\n");
  		print_packet(*pkt);
 	} 
 	
@@ -205,6 +198,14 @@ void print_packet(Packet pk){
 	}
 
 	printf("Type: %s\nSeq: %d\nAck: %d\nData size: %ld\nData: %s\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size, pk.data);
+	/*int i;
+	for (i = 0; i < PAYLOAD; i++){
+		if(pk.data[i] == '\0'){
+			break;
+		}
+	    printf("%02X", pk.data[i]);
+	}
+	printf("\n\n");*/
 }
 
 /* ORDER_BUFFER 
