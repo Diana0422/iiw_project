@@ -314,7 +314,7 @@ void response_get(int sd, struct sockaddr_in addr, char* filename, int sequence,
         if ((n = send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, &size)) == -1) {
         	fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq);
         	exit(EXIT_FAILURE);
-	}
+	    }
 	
 	// Receive ack
     	pthread_mutex_lock(&put_avb[thread]);

@@ -127,7 +127,7 @@ Packet unserialize_packet(char* buffer)
  	int n;
  	
  	//AUDIT
-	print_packet(*pkt);
+	//print_packet(*pkt);
 
  	strcpy(buffer, serialize_packet(pkt));
  	
@@ -157,7 +157,7 @@ Packet unserialize_packet(char* buffer)
  		*pkt = unserialize_packet(buffer);
 
  		//AUDIT
-		print_packet(*pkt);
+		//print_packet(*pkt);
 
 	} 
 	
@@ -198,7 +198,7 @@ void print_packet(Packet pk){
 			break;
 	}
 
-	printf("Type: %s\nSeq: %d\nAck: %d\nData size: %ld\nData: %s\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size, pk.data);
+	printf("Type: %s\nSeq: %d\nAck: %d\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
 	/*int i;
 	for (i = 0; i < PAYLOAD; i++){
 		if(pk.data[i] == '\0'){

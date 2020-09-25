@@ -6,8 +6,6 @@
 #define client_h
 //#define MAXLINE 1024
 
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <sys/sem.h>
 #include <sys/ipc.h>
 #include <pthread.h>
@@ -34,12 +32,11 @@ typedef struct node{
 	struct node* next;		   //Pointer to the next client in the list 
 }Client;
 
-
 extern void insert_client(Client**, struct sockaddr_in, Packet*);
 
 extern void get_client(Client**, int, Client**);
 
-extern void remove_client(Client**, int, pthread_mutex_t*);
+extern void remove_client(Client**, struct sockaddr_in);
 
 extern void dispatch_client(Client*, struct sockaddr_in, int*);
 

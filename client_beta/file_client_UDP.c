@@ -173,7 +173,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
         //Check if the received packet is in order with the stream of bytes
         }else if(pk->seq_num == rcv_next){
 
-        	printf("Received packet #%d.\n", pk->seq_num);
+        	printf("Received packet #%d: %s\n", pk->seq_num, pk->data);
             //Convert byte array to file
             write_size += fwrite(pk->data, 1, pk->data_size, fp);
             rcv_next += (int)pk->data_size;
@@ -263,12 +263,9 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
 	/**VARIABLE DEFINITIONS**/
     FILE *fp;
     socklen_t addrlen = sizeof(addr);
-    size_t max_size;
     ssize_t read_size;
-    char buff[MAXLINE];
     char* sendline;
     Packet *pk;
-    int rcvd = 0; 
     /**END**/
     
     //Wait for the "all clear" of the server
@@ -286,85 +283,76 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         printf("File %s successfully opened!\n", filename);
     }   
     
-    //Retrive the dimension of the file to allocate
-    fseek(fp, 0, SEEK_END);
-    max_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    printf("File size = %ld\n", max_size);
-        
-    //Send the dimension to the server
-    sprintf(buff, "%ld", max_size);    
-    pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);    
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-    	fprintf(stderr, "Error: couldn't send the dimension packet to server.\n");
-    	fclose(fp);
-    	return 1;
-    } else {
-    	printf("File dimension correctly sent.\n");
-    	send_next += (int)pk->data_size;
-    }
-       
-    //Receive ack
-    if (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-    	fprintf(stderr, "Error: couldn't receive ack packet.\n");
-    	return 1;
-    } else {
-    	//If the received ACK has ack number bigger than the first unacknowledged byte, update window
-        if ((pk->type == ACK) && (pk->ack_num > send_una)) {
-        	printf("Ack OK.\n");
-        	send_una = pk->ack_num;
-            usable_wnd = send_una + send_wnd - send_next;
-        	//RESTART TIMER IF send_una < send_next        	
-        } else {
-        	printf("Ack NOT OK.\n");
-        	return 1;
-        }
-    }
-    
     //Allocate space
-    sendline = (char*)malloc(MAX_DGRAM_SIZE);
-    if(sendline == NULL){
+    if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
         perror("Malloc() failed.");
-        exit(EXIT_FAILURE);
+        exit(-1);
     }
-    
-    while(!feof(fp)) {
-    	//While there's space in the transmission window read from the file
+  
+    //Send the file to the client
+    while(!feof(fp)) {       
+        //Read from the file and send data   
         read_size = fread(sendline, 1, PAYLOAD, fp);
-        rcvd += read_size;
-        printf("Bytes sent: %d/%ld.\n", rcvd, max_size);
 
-        //Send data through our socket
-        pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);	         
+        pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
+        printf("Sending packet #%d\n", send_next);          
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
             free(sendline);
+            free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
-        
+        printf("Packet #%d correctly sent\n", send_next);
         send_next += (int)pk->data_size;
+
+        //Check if there's still usable space in the transmission window: if not, wait for an ACK
         while((usable_wnd = send_una + send_wnd - send_next) <= 0){
-            //Wait for ACK
-            if (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                failure("Error: couldn't receive ack packet.");
-            } else {               
-                if ((pk->type == ACK) && (pk->ack_num > send_una)) {
-                    printf("Ack OK.\n");
-                    send_una = (int)pk->ack_num;
-                    //RESTART TIMER IF send_una < send_next 
-                } else {
-                    printf("Ack NOT OK.\n");
-                    return 1;
-                }
+            //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
+            if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
+                perror("Error: couldn't receive packet from socket.\n");
+                free(pk);
+                fclose(fp);
+                return 1;
+            }
+
+            if((pk->type == ACK) && (pk->ack_num > send_una)){
+                printf("Received ACK #%d.\n", pk->ack_num);
+                send_una = pk->ack_num;
+                //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             }
         }
+
         free(pk);
         memset(sendline, 0, MAX_DGRAM_SIZE);
     }
 
+    pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+        fprintf(stderr, "Error: couldn't send the filename.\n");
+        return 1;
+    } else {
+        printf("last packet.\n");
+    }
+
+    //Wait for ACK until every packet is correctly received
+    while(send_una != send_next){
+        if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
+                perror("Error: couldn't receive packet from socket.\n");
+                free(pk);
+                fclose(fp);
+                return 1;
+            }
+
+        if((pk->type == ACK) && (pk->ack_num > send_una)){
+            printf("Received ACK #%d.\n", pk->ack_num);
+            send_una = pk->ack_num;
+            //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS, ELSE STOP
+        }
+    }
+    
     free(sendline);
+    free(pk);
     fclose(fp);
-    printf("Done.\n"); 
     return 0;
 }
 
@@ -381,11 +369,11 @@ int main(int argc, char* argv[])
         failure("Utilization: ./client <server IP>");
     }
 
-    /**VARIABLE DEFINITIONS**/
+    /**VARIABLE DEFINITIONS**/   
     int sockfd, res = 0;
 
-    struct sockaddr_in servaddr;
-    socklen_t addrlen = sizeof(servaddr);
+	struct sockaddr_in servaddr;
+    socklen_t addrlen = sizeof(struct sockaddr_in);
 
     char buff[MAXLINE];
     char *tok, *filename;
@@ -401,8 +389,7 @@ int main(int argc, char* argv[])
     }
     
     //Initialize address values
-    memset((void*)&servaddr, 0, addrlen);
-    
+    memset((void*)&servaddr, 0, addrlen);    
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(SERV_PORT);
     if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0) {
@@ -503,7 +490,8 @@ int main(int argc, char* argv[])
             failure("\033[0;31mInput function error.\033[0m\n");
         } else {
             printf("\nOK.\n");
-            //TERMINATE CONNECTION: hadler for SIGINT -> terminate connection sending FIN!
+            demolition(send_next, rcv_next, sockfd, &servaddr, addrlen);
+            break;
         }       
     }
     

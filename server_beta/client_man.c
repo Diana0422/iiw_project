@@ -76,7 +76,7 @@ void get_client(Client **h, int thread, Client** client_info){
 }
 
 
-void remove_client(Client **h, int thread, pthread_mutex_t* mux){
+void remove_client(Client **h, struct sockaddr_in addr){
 
     Client *prev;
     Client *curr;
@@ -84,24 +84,22 @@ void remove_client(Client **h, int thread, pthread_mutex_t* mux){
     prev = NULL;
     curr = *h;
 
-    pthread_mutex_lock(mux);
     while(curr != NULL){
-        if(curr->server == thread){
+        if((addr.sin_addr.s_addr == (curr->addr).sin_addr.s_addr) && (addr.sin_port == (curr->addr).sin_port)){
             if(prev == NULL){
                 *h = curr->next;
             }else{
                 prev->next = curr->next;
             }
 	    
-	    free(curr->pack);
+	        free(curr->pack);
             free(curr);
             break;
         }
         prev = curr;
         curr = curr->next;
     }
-    pthread_mutex_unlock(mux);
-    
+
     printf("Client removed: ");
     print_list(*h);
     printf("\n");

@@ -7,7 +7,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define PAYLOAD 1024
+#define PAYLOAD 65000
 
 typedef enum type {DATA, ACK, SYN, SYNACK, FIN, FINACK} packet_type;
 
@@ -32,6 +32,8 @@ extern int recv_packet(Packet*, int, struct sockaddr*, socklen_t);
 extern int rand_lim(int);
 
 extern int handshake(Packet*, int*, int, struct sockaddr_in*, socklen_t);
+
+extern int demolition(int, struct sockaddr_in*, socklen_t);
 
 extern void print_packet(Packet);
 
