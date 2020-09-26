@@ -10,17 +10,17 @@
 
 #define SERV_PORT 5193
 #define DIR_PATH files
-#define INIT_WIN_SIZE 1000000	//Test
+#define INIT_WIN_SIZE  10
 #define MAX_BUFF_SIZE	10
 
 Packet* rcv_buffer[MAX_BUFF_SIZE] = {NULL};
-int rcv_next; //The sequence number of the next byte of data that is expected from the server
-int rcv_wnd; //The size of the receive window “advertised” to the server.
+unsigned long rcv_next; //The sequence number of the next byte of data that is expected from the server
+unsigned long rcv_wnd; //The size of the receive window “advertised” to the server.
 
-int send_una; //The sequence number of the first byte of data that has been sent but not yet acknowledged
-int send_next; //The sequence number of the next byte of data to be sent to the server
-int send_wnd; //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
-int usable_wnd; //The amount of bytes that can be sent 
+unsigned long send_una; //The sequence number of the first byte of data that has been sent but not yet acknowledged
+unsigned long send_next; //The sequence number of the next byte of data to be sent to the server
+unsigned long send_wnd; //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
+unsigned long usable_wnd; //The amount of bytes that can be sent 
 
 /* 
  ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -57,7 +57,7 @@ int request_list(int sd, struct sockaddr_in addr)
             //Send ACK for the last correctly received packet
             pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
             if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
+                fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
                 free(pk);
                 return 1;
             } 
@@ -87,7 +87,7 @@ int request_list(int sd, struct sockaddr_in addr)
             //Send ACK: ack_num updated to the byte the client is waiting to receive                       	
        	    pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
            	if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-           		fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
+           		fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
                 free(pk);
            		return 1;
            	}
@@ -99,7 +99,7 @@ int request_list(int sd, struct sockaddr_in addr)
                 //Send ACK for the last correctly received packet
             	pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
                 if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                    fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
+                    fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
                     free(pk);
                     return 1;
                 }
@@ -164,7 +164,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
             //Send ACK for the last correctly received packet
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
             if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+                fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                 free(pack);
                 return 1;
             } 
@@ -173,19 +173,20 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
         //Check if the received packet is in order with the stream of bytes
         }else if(pk->seq_num == rcv_next){
 
-        	printf("Received packet #%d: %s\n", pk->seq_num, pk->data);
+        	printf("Received packet #%lu\n", pk->seq_num);
             //Convert byte array to file
             write_size += fwrite(pk->data, 1, pk->data_size, fp);
-            rcv_next += (int)pk->data_size;
+            rcv_next += (unsigned long)pk->data_size;
 
             //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
             interv = check_buffer(pk, rcv_buffer);
+            printf("Buffered packets that can be read: %d\n", interv);
             for(i=0; i<interv; i++){
                 //Read every packet in order: everytime from the head of the buffer to avoid gaps in the buffer
             
                 //Convert byte array to file
                 write_size += fwrite(rcv_buffer[0]->data, 1, rcv_buffer[0]->data_size, fp);
-                rcv_next += (int)rcv_buffer[0]->data_size;
+                rcv_next += (unsigned long)rcv_buffer[0]->data_size;
 
                 //Slide the buffered packets to the head of the buffer
                 while(rcv_buffer[j] != NULL){
@@ -196,40 +197,46 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
                 j=1;
             }
 
-            memset(pk->data, 0, pk->data_size);
+            memset(pk->data, 0, PAYLOAD);
             
             //Send ACK: ack_num updated to the byte the client is waiting to receive                        
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-            printf("Sending ACK.\n");
+            printf("Sending ACK #%lu.\n", rcv_next);
             if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+                fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                 free(pk);
                 free(pack);
                 return 1;
             }
-            printf("ACK #%d correctly sent.\n", pack->ack_num);
+            printf("ACK #%lu correctly sent.\n", pack->ack_num);
             free(pack);
         
         }else{
             //Packet received out of order: store packet in the receive buffer
             //AUDIT
-            printf("Received packet #%d out of order.\n", pk->seq_num);
+            printf("Received packet #%lu out of order.\n", pk->seq_num);
             //
             if(store_pck(pk, rcv_buffer, MAX_BUFF_SIZE)){
-
+                printf("RECEIVE BUFFER: \n");
+                i=0;
+                while(rcv_buffer[i] != NULL){
+                    print_packet(*rcv_buffer[i]);
+                    i++;
+                }
+                printf("RECEIVE BUFFER\n");
                 //Send ACK for the last correctly received packet
-                printf("Sending ACK.\n");
+                printf("Sending ACK #%lu.\n", rcv_next);
                 pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
                 if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                    fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+                    fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                     free(pk);
                     free(pack);
                     return 1;
                 }
-                printf("ACK #%d correctly sent.\n", pack->ack_num);
+                printf("ACK #%lu correctly sent.\n", pack->ack_num);
                 free(pack);
 
-                memset(pk->data, 0, pk->data_size);
+                memset(pk->data, 0, PAYLOAD);
             }else{
                 printf("Buffer Overflow. NEED FLOW CONTROL\n");
                 free(pk);
@@ -295,15 +302,15 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         read_size = fread(sendline, 1, PAYLOAD, fp);
 
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
-        printf("Sending packet #%d\n", send_next);          
+        printf("Sending packet #%lu\n", send_next);          
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
             free(sendline);
             free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
-        printf("Packet #%d correctly sent\n", send_next);
-        send_next += (int)pk->data_size;
+        printf("Packet #%lu correctly sent\n", send_next);
+        send_next += (unsigned long)pk->data_size;
 
         //Check if there's still usable space in the transmission window: if not, wait for an ACK
         while((usable_wnd = send_una + send_wnd - send_next) <= 0){
@@ -316,7 +323,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
             }
 
             if((pk->type == ACK) && (pk->ack_num > send_una)){
-                printf("Received ACK #%d.\n", pk->ack_num);
+                printf("Received ACK #%lu.\n", pk->ack_num);
                 send_una = pk->ack_num;
                 //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             }
@@ -337,14 +344,14 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
         if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
-                perror("Error: couldn't receive packet from socket.\n");
-                free(pk);
-                fclose(fp);
-                return 1;
-            }
+            perror("Error: couldn't receive packet from socket.\n");
+            free(pk);
+            fclose(fp);
+            return 1;
+        }
 
         if((pk->type == ACK) && (pk->ack_num > send_una)){
-            printf("Received ACK #%d.\n", pk->ack_num);
+            printf("Received ACK #%lu.\n", pk->ack_num);
             send_una = pk->ack_num;
             //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS, ELSE STOP
         }
@@ -401,7 +408,7 @@ int main(int argc, char* argv[])
 
     //Initialize windows and stream variables
     send_una = send_next;
-    send_wnd = INIT_WIN_SIZE;
+    send_wnd = INIT_WIN_SIZE*MAX_DGRAM_SIZE;
     
     //Read from socket until EOF is found   
     while (1) {
@@ -422,21 +429,21 @@ int main(int argc, char* argv[])
 
         //Send request
         pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
-        printf("Sending packet %d\n", send_next);  
+        printf("Sending packet %lu\n", send_next);  
         if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
-            fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq_num);
+            fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
             free(pk);
             return 1;
         }
-        printf("Packet #%d correctly sent\n", send_next);
-        send_next += (int)pk->data_size;
+        printf("Packet #%lu correctly sent\n", send_next);
+        send_next += (unsigned long)pk->data_size;
 
         //Wait for ACK
         if (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
-            failure("Error: couldn't receive ack packet.");
+            failure("Error: couldn't receive ack.");
         } else {               
             if ((pk->type == ACK) && (pk->ack_num > send_una)) {
-                printf("Received ACK #%d.\n", pk->ack_num);
+                printf("Received ACK #%lu.\n", pk->ack_num);
                 send_una = (int)pk->ack_num;
                 //RESTART TIMER IF send_una < send_next 
             } else {

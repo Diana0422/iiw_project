@@ -21,14 +21,14 @@ int failure(const char* msg){
  * @return retval: random integer generated.
  */
 
- int rand_lim(int limit) {
+unsigned long rand_lim(int limit) {
 
-    int divisor = RAND_MAX/(limit+1);
-    int retval;
+    unsigned long divisor = RAND_MAX/(limit+1);
+    unsigned long retval;
 
     do { 
         retval = rand() / divisor;
-    } while (retval > limit);
+    } while (retval > (unsigned long)limit);
 
     return retval;
 }

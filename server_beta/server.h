@@ -22,7 +22,7 @@
 
 #include "packet.h"
 
-#define MAX_DGRAM_SIZE 65505
+#define MAX_DGRAM_SIZE 65507
 #define THREAD_POOL	10
 
 typedef struct node{
@@ -48,7 +48,7 @@ extern int check_failure(const char*);
 	
 extern int failure(const char*);
 
-extern int rand_lim(int);
+extern unsigned long rand_lim(int);
 
 extern char* read_file(FILE*, char*, size_t*);
  

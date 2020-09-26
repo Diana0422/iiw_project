@@ -23,14 +23,14 @@
 #include "packet.h"
 
 #define MAXLINE 1024
-#define MAX_DGRAM_SIZE 65505
+#define MAX_DGRAM_SIZE 65507
 #define THREAD_POOL	10
 
 extern int check_failure(const char*);
 
 extern int failure(const char*);
 
-extern int rand_lim(int limit);
+extern unsigned long rand_lim(int limit);
 
 extern char* read_file(FILE*, char*, size_t*);
 

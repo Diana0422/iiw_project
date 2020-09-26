@@ -7,7 +7,7 @@
 #include "server.h"
 
 #define SERV_PORT 5193          //Port number used by the server application
-#define INIT_WND_SIZE 10        //Initial dimension of the transmission window
+#define INIT_WND_SIZE 10       //Initial dimension of the transmission window
 #define MAX_RVWD_SIZE 1000        //Dimension of the receive buffer
 
 pthread_mutex_t list_mux;           //Mutex: coordinate the access to the client list
@@ -37,25 +37,25 @@ void response_list(int sd, int thread, Client* cli_info)
     char* buff;
     int payld = 0;    //Used to insert as much filenames as possibile into one packet (Transmission efficiency)
 
-    int rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
-    int send_next = cli_info->pack->ack_num;     //The sequence number of the next byte of data to be sent to the client
-    int send_una = send_next;                    //The sequence number of the first byte of data that has been sent but not yet acknowledged
-    int send_wnd = INIT_WND_SIZE;                //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
-    int usable_wnd = send_wnd;                   //The amount of bytes that can be sent
+    unsigned long rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
+    unsigned long send_next = cli_info->pack->ack_num;     //The sequence number of the next byte of data to be sent to the client
+    unsigned long send_una = send_next;                    //The sequence number of the first byte of data that has been sent but not yet acknowledged
+    unsigned long send_wnd = INIT_WND_SIZE;                //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
+    unsigned long usable_wnd = send_wnd;                   //The amount of bytes that can be sent
     /**END**/
       
     //AUDIT
     printf("response_list started.\n");
 
     //Send ACK
-    printf("Sending ACK.\n");
+    printf("Sending ACK #%lu.\n", rcv_next);
     pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
     if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
+        fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
         free(pk);
         return;
     }
-    printf("ACK #%d correctly sent.\n", pk->ack_num);
+    printf("ACK #%lu correctly sent.\n", pk->ack_num);
     free(pk);
     
     // Ensure we can open directory
@@ -85,17 +85,17 @@ void response_list(int sd, int thread, Client* cli_info)
             //Send data packet with filenames
             pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
             if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq_num);
+                fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
                 return;
             }
             send_next += (int)pk->data_size;
             free(pk);
 
-            while((usable_wnd = send_una + send_wnd - send_next) < 0){
+            while((usable_wnd = send_una + send_wnd - send_next) <= 0){
                 //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
                 pthread_mutex_lock(&mux_avb[thread]);
                 if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-                    printf("Ack #%d recevied.\n", cli_info->pack->ack_num);
+                    printf("Ack #%lu recevied.\n", cli_info->pack->ack_num);
                     send_una = cli_info->pack->ack_num;
                     //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
                 }
@@ -111,17 +111,17 @@ void response_list(int sd, int thread, Client* cli_info)
     //Send last data packet with filenames (amount of data smaller than PAYLOAD)
     pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send packet #%d.\n", pk->seq_num);
+        fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
         return;
     }
-    send_next += (int)pk->data_size;
+    send_next += (unsigned long)pk->data_size;
     free(pk);
 
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
         pthread_mutex_lock(&mux_avb[thread]);
         if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-            printf("Ack #%d recevied.\n", cli_info->pack->ack_num);
+            printf("Ack #%lu recevied.\n", cli_info->pack->ack_num);
             send_una = cli_info->pack->ack_num;
             //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             //ELSE, STOP TIMER
@@ -162,24 +162,24 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
     Packet *pk;
 
-    int rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;    //The sequence number of the next byte of data that is expected from the client
-    int send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
-    int send_una = send_next;           //The sequence number of the first byte of data that has been sent but not yet acknowledged
-    int send_wnd = INIT_WND_SIZE;       //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
-    int usable_wnd = send_wnd;          //The amount of bytes that can be sent
+    unsigned long rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;    //The sequence number of the next byte of data that is expected from the client
+    unsigned long send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
+    unsigned long send_una = send_next;           //The sequence number of the first byte of data that has been sent but not yet acknowledged
+    unsigned long send_wnd = INIT_WND_SIZE*MAX_DGRAM_SIZE;       //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
+    unsigned long usable_wnd = send_wnd;          //The amount of bytes that can be sent
     /**END**/
 
     printf("response_get started.\n");
 
     //Send ACK
-    printf("Sending ACK.\n");
+    printf("Sending ACK #%lu.\n", rcv_next);
     pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
     if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send ack #%d.\n", pk->ack_num);
+        fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
         free(pk);
         return;
     }
-    printf("ACK #%d correctly sent.\n", pk->ack_num);
+    printf("ACK #%lu correctly sent.\n", pk->ack_num);
     free(pk);
     
     //Open the file
@@ -187,7 +187,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     strcat(path, "files/");
     strcat(path, filename);
     
-    fp = fopen(path, "r");
+    fp = fopen(path, "rb");
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s.", filename);
         return;
@@ -200,14 +200,15 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     	perror("Malloc() failed.");
     	exit(-1);
     }
+    memset(sendline, 0, MAX_DGRAM_SIZE);
   
     //Send the file to the client
     while(!feof(fp)) {       
         //Read from the file and send data   
-        read_size = fread(sendline, 1, PAYLOAD, fp);
-        printf("Send_next #%d: sendline %s\n", send_next, sendline); 
+        read_size = fread(sendline, sizeof(char), PAYLOAD, fp);
+
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
-        printf("Sending packet #%d: %s\n", pk->seq_num, pk->data);          
+        printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);     
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
             free(sendline);
             free(pk);
@@ -215,14 +216,15 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
             return;
         }
         //printf("Packet #%d correctly sent\n", send_next);
-        send_next += (int)pk->data_size;
+        send_next += (unsigned long)pk->data_size;
 
         //Check if there's still usable space in the transmission window: if not, wait for an ACK
-        while((usable_wnd = send_una + send_wnd - send_next) == 0){
+        while((usable_wnd = send_una + send_wnd - send_next) <= 0){
             //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
+            printf("FULL WINDOW: send_una #%lu - Waiting for ACKs\n", send_una);
             pthread_mutex_lock(&mux_avb[thread]);
             if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-                printf("Received ACK #%d.\n", cli_info->pack->ack_num);
+                printf("Received ACK #%lu.\n", cli_info->pack->ack_num);
                 send_una = cli_info->pack->ack_num;
                 //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             }
@@ -230,10 +232,10 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
         free(pk);
         memset(sendline, 0, MAX_DGRAM_SIZE);
-        sleep(1);
     }
 
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
+    printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
@@ -243,9 +245,10 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
+        printf("Waiting to receive every ACK for the transmitted file.\n");
         pthread_mutex_lock(&mux_avb[thread]);
         if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
-            printf("Received ACK #%d.\n", cli_info->pack->ack_num);
+            printf("Received ACK #%lu.\n", cli_info->pack->ack_num);
             send_una = cli_info->pack->ack_num;
             //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
             //ELSE, STOP TIMER
@@ -277,21 +280,21 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     Packet* pack;
 
     Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};     //Receiver buffer: used to buffer incoming packets out of order. NEED FOR FLOW CONTROL
-    int rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size;    //The sequence number of the next byte of data that is expected from the client
-    int send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
+    unsigned long rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size;    //The sequence number of the next byte of data that is expected from the client
+    unsigned long send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
     /**END**/
 
     printf("response_put started.\n\n");
 
     //Send ACK
-    printf("Sending ACK.\n");
+    printf("Sending ACK #%lu.\n", rcv_next);
     pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
     if (send_packet(pack, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
-        fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+        fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
         free(pack);
         return;
     }
-    printf("ACK #%d correctly sent.\n\n", pack->ack_num);
+    printf("ACK #%lu correctly sent.\n\n", pack->ack_num);
     free(pack);
     
     //Open the file
@@ -324,18 +327,18 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
             }else{
                 //Convert byte array to file
                 write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
-                rcv_next += (int)cli_info->pack->data_size;
+                rcv_next += (unsigned long)cli_info->pack->data_size;
             }
 
             //Send ACK for the last correctly received packet
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-            printf("Sending ACK.\n");
+            printf("Sending ACK #%lu.\n", rcv_next);
             if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+                fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                 free(pack);
                 return;
             }
-            printf("ACK #%d correctly sent.\n\n", pack->ack_num); 
+            printf("ACK #%lu correctly sent.\n\n", pack->ack_num); 
             free(pack); 
 
         } else {
@@ -344,14 +347,14 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
 
                 //Send ACK for the last correctly received packet
                 pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-                printf("Sending ACK.\n");
+                printf("Sending ACK #%lu.\n", rcv_next);
                 if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
-                    fprintf(stderr, "Error: couldn't send ack #%d.\n", pack->ack_num);
+                    fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                     free(pack);
                     pthread_mutex_unlock(&mux_free[thread]); 
                     return;
                 }
-                printf("ACK #%d correctly sent.\n\n", pack->ack_num);
+                printf("ACK #%lu correctly sent.\n\n", pack->ack_num);
                 //COUNT DUPLICATE ACK FOR A STORED OUT OF ORDER PACKET
                 free(pack);
 
@@ -454,7 +457,8 @@ int main(void)
     struct sembuf ops;          //Structure for semaphore operations
 
     pthread_t tid;              
-    int thread, i, init_seq;     //Supporting variables for different kind of task: indexing, returning values or temporary storage
+    int thread, i; 
+    unsigned long init_seq;     //Supporting variables for different kind of task: indexing, returning values or temporary storage
     Packet* pk_rcv;      //Packet used to receive from socket
     Packet* pk_hds = NULL;             //Packet used for the handshake and as basic informations for a new client who's just completed the handshake
     int* indexes;    
@@ -557,7 +561,6 @@ int main(void)
             //If the packet carries a request for a new connection, enstablish a connection
             if (pk_rcv->type == SYN) {
                 printf("\033[0;34mReceived a new connection request.\033[0m\n");
-                
                 //3-WAY HANDSHAKE
                 if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen) == -1){
                     fprintf(stderr, "\033[0;31mConnection failure.\033[0m\n");

@@ -1,6 +1,6 @@
 #include "client.h"
 
-void handshake(Packet* pk, int* init_seq, int* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen)
+void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen)
 {
     pk = create_packet(0, 0, 0, NULL, SYN);
 
@@ -27,7 +27,7 @@ void handshake(Packet* pk, int* init_seq, int* init_ack, int sockfd, struct sock
    
     //Close the handshake
     *init_ack = pk->seq_num + 1;
-    *init_seq = rand_lim(100000);
+    *init_seq = rand_lim(1000);
 
     free(pk);
     pk = create_packet(*init_seq, *init_ack, 0, NULL, ACK);    
@@ -40,7 +40,7 @@ void handshake(Packet* pk, int* init_seq, int* init_ack, int sockfd, struct sock
     }
 }
 
-void demolition(int sequence, int ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen){
+void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen){
   
     Packet *pk = (Packet*)malloc(sizeof(Packet));
     if(pk == NULL){

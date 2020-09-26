@@ -1,8 +1,8 @@
 #include "server.h"
 
-int handshake(Packet* pk, int* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen)
+int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen)
 {
-    *init_seq = rand_lim(1000000);
+    *init_seq = rand_lim(1000);
 
     pk = create_packet(*init_seq, 0, 0, (char*)NULL, SYNACK);
 
@@ -39,9 +39,9 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen){
         perror("Malloc failed");
         exit(EXIT_FAILURE);
     }
-
+   
     pk = create_packet(0, 0, 0, (char*)NULL, FINACK);
-
+    
     //Send a SYNACK to connect to the client    
     printf("Server sends a FINACK packet.\n");   
     while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen) == -1) {

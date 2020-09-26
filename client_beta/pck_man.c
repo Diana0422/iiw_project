@@ -1,20 +1,18 @@
 #include "client.h"
 
-#define DELIMITER "|"
-
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
  * @param type: message type; seq_num: sequence number of the packet; size: data size; data: pointer to data buffer
  * @return Packet*
  */
  
-Packet* create_packet(int seq_num, int ack_num, size_t size, char* data, packet_type type)
+Packet* create_packet(unsigned long seq_num, unsigned long ack_num, size_t size, char* data, packet_type type)
 {
-	Packet* pack = NULL;
+	Packet* pack;
 	
 	pack = (Packet*)malloc(sizeof(Packet));
 	if (pack == NULL) {
-		fprintf(stderr, "Error: Malloc() packet #%d.\n", seq_num);
+		fprintf(stderr, "Error: Malloc() packet #%lu.\n", seq_num);
 		return NULL;
 	}
 	
@@ -25,7 +23,7 @@ Packet* create_packet(int seq_num, int ack_num, size_t size, char* data, packet_
 	if(size == 0){
 		strcpy(pack->data, "NULL");
 	}else{
-		strcpy(pack->data, data);
+		memcpy(pack->data, data, size);
 	}
 	pack->type = type;
 	
@@ -41,33 +39,20 @@ Packet* create_packet(int seq_num, int ack_num, size_t size, char* data, packet_
     
 char* serialize_packet(Packet* packet)
 {
-	char *buffer = (char*)malloc(MAX_DGRAM_SIZE);
+	char* buffer = (char*)malloc(MAX_DGRAM_SIZE);
 	if(buffer == NULL){
-		perror("Malloc failed.");
+		perror("Malloc failed");
 		exit(EXIT_FAILURE);
 	}
+	memset(buffer, 0, MAX_DGRAM_SIZE);
 
-	char seq[7], ack[7], size[7], type_str[2];
+	sprintf(buffer, "%lu %lu %ld %d ", packet->seq_num, packet->ack_num, packet->data_size, (int)packet->type);
 
-	sprintf(seq, "%d", packet->seq_num);
-	sprintf(ack, "%d", packet->ack_num);
-	sprintf(size, "%ld", packet->data_size);
-	sprintf(type_str, "%d", (int)packet->type);
-
-	strcat(buffer, seq);
-	strcat(buffer, DELIMITER);
-
-	strcat(buffer, ack);
-	strcat(buffer, DELIMITER);
-
-	strcat(buffer, size);
-	strcat(buffer, DELIMITER);
-	
-	strcat(buffer, packet->data);
-	strcat(buffer, DELIMITER);
-
-	strcat(buffer, type_str);
-	strcat(buffer, DELIMITER);
+	if(packet->data_size){
+		memcpy(buffer+strlen(buffer), packet->data, packet->data_size);
+	}else{
+		strcat(buffer, packet->data);
+	}
 
 	return buffer;
 }
@@ -81,8 +66,8 @@ char* serialize_packet(Packet* packet)
 
 Packet unserialize_packet(char* buffer)
 {
-	char token[MAX_DGRAM_SIZE];
-	int size, type;
+	char seq[20], ack[20], size_str[7], type_str[2];
+	int type, len;
 	
 	Packet* pk = (Packet*)malloc(sizeof(Packet));
 	if (pk == NULL) {
@@ -90,26 +75,22 @@ Packet unserialize_packet(char* buffer)
 		exit(EXIT_FAILURE);
 	}
 
-	strcpy(token, strtok(buffer, DELIMITER));
-	pk->seq_num = atoi(token);
-	memset(token, 0, strlen(token));
+	sscanf(buffer, "%s %s %s %s ", seq, ack, size_str, type_str);
+	len = strlen(seq)+strlen(ack)+strlen(size_str)+strlen(type_str)+4;
 
-	strcpy(token, strtok(NULL, DELIMITER));
-	pk->ack_num = atoi(token);
-	memset(token, 0, strlen(token));
-
-	strcpy(token, strtok(NULL, DELIMITER));
-	size = atoi(token);
-	pk->data_size = (size_t)size;
-	memset(token, 0, strlen(token));
-
-	strcpy(token, strtok(NULL, DELIMITER));
-	strcpy(pk->data, token);
-	memset(token, 0, strlen(token));
-
-	strcpy(token, strtok(NULL, DELIMITER));
-	type = atoi(token);
+	pk->seq_num = (unsigned long)atol(seq);
+	pk->ack_num = (unsigned long)atol(ack);
+	pk->data_size = (size_t)(atoi(size_str));
+	type = atoi(type_str);
 	pk->type = (packet_type)type;
+	
+	memset(pk->data, 0, pk->data_size);
+	if(pk->data_size){
+		//memmove(buffer, buffer+len, pk->data_size);
+		memcpy(pk->data, buffer+len, pk->data_size);
+	}else{
+		strcpy(pk->data, buffer+len);
+	}
 
 	return *pk;
 }
@@ -123,18 +104,23 @@ Packet unserialize_packet(char* buffer)
  
  int send_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen)
  {
- 	char buffer[MAX_DGRAM_SIZE];
+ 	char* buffer = (char*)malloc(MAX_DGRAM_SIZE);
+ 	if(buffer == NULL){
+ 		perror("Malloc failed");
+ 		exit(EXIT_FAILURE);
+ 	}
+ 	memset(buffer, 0, MAX_DGRAM_SIZE);
+
  	int n;
- 	
  	//AUDIT
- 	//print_packet(*pkt);
+	print_packet(*pkt);
 
- 	strcpy(buffer, serialize_packet(pkt));
+ 	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
 
- 	if ((n = sendto(socket, buffer, strlen(buffer), 0, (struct sockaddr*)addr, addrlen)) == -1) {
+ 	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
 	}
-    
+
     return n;
  }
  
@@ -147,17 +133,23 @@ Packet unserialize_packet(char* buffer)
  
  int recv_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen) 
  {
- 	char buffer[MAX_DGRAM_SIZE];
- 	int n;
- 	
+ 	char* buffer = (char*)malloc(MAX_DGRAM_SIZE);
+ 	if(buffer == NULL){
+ 		perror("Malloc failed");
+ 		exit(EXIT_FAILURE);
+ 	}
  	memset(buffer, 0, MAX_DGRAM_SIZE);
+
+ 	int n;
+
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
  	} else {
+
  		*pkt = unserialize_packet(buffer);
 
  		//AUDIT
- 		//print_packet(*pkt);
+ 		print_packet(*pkt);
 	} 
 	
 	return n;
@@ -197,13 +189,11 @@ void print_packet(Packet pk){
 			break;
 	}
 
-	printf("Type: %s\nSeq: %d\nAck: %d\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
-	/*int i;
-	for (i = 0; i < PAYLOAD; i++){
-		if(pk.data[i] == '\0'){
-			break;
-		}
-	    printf("%02X", pk.data[i]);
+	printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
+	/*int i, count = 1;
+	for (i = 0; i < (int)pk.data_size; i++){
+	    printf("%d: %02X\n", count, pk.data[i]);
+	    count++;
 	}
 	printf("\n\n");*/
 }
@@ -281,7 +271,7 @@ int store_pck(Packet* pk, Packet* buff[], int size) {
 int check_buffer(Packet* pk, Packet* buff[]){
 	int i = 0;
 	int res = 0;
-	int seq_num = (pk->seq_num + pk->data_size + 1);
+	unsigned long seq_num = (pk->seq_num + pk->data_size + 1);
 
 	if(buff[0] == NULL){
 		return res;
