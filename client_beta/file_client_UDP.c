@@ -295,6 +295,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         perror("Malloc() failed.");
         exit(-1);
     }
+    memset(sendline, 0, MAX_DGRAM_SIZE);
   
     //Send the file to the client
     while(!feof(fp)) {       
@@ -302,7 +303,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         read_size = fread(sendline, 1, PAYLOAD, fp);
 
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
-        printf("Sending packet #%lu\n", send_next);          
+        printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);          
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
             free(sendline);
             free(pk);
@@ -315,6 +316,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         //Check if there's still usable space in the transmission window: if not, wait for an ACK
         while((usable_wnd = send_una + send_wnd - send_next) <= 0){
             //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
+            printf("FULL WINDOW: send_una #%lu - Waiting for ACKs\n", send_una);
             if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
                 perror("Error: couldn't receive packet from socket.\n");
                 free(pk);
@@ -331,9 +333,11 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
 
         free(pk);
         memset(sendline, 0, MAX_DGRAM_SIZE);
+        sleep(1);
     }
 
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
+    printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return 1;
@@ -343,6 +347,8 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
 
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
+        printf("Waiting to receive every ACK for the transmitted file.\n");
+
         if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
             perror("Error: couldn't receive packet from socket.\n");
             free(pk);

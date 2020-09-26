@@ -162,7 +162,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
     Packet *pk;
 
-    unsigned long rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;    //The sequence number of the next byte of data that is expected from the client
+    unsigned long rcv_next = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1;    //The sequence number of the next byte of data that is expected from the client
     unsigned long send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
     unsigned long send_una = send_next;           //The sequence number of the first byte of data that has been sent but not yet acknowledged
     unsigned long send_wnd = INIT_WND_SIZE*MAX_DGRAM_SIZE;       //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
@@ -205,7 +205,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     //Send the file to the client
     while(!feof(fp)) {       
         //Read from the file and send data   
-        read_size = fread(sendline, sizeof(char), PAYLOAD, fp);
+        read_size = fread(sendline, 1, PAYLOAD, fp);
 
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
         printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);     
@@ -277,10 +277,12 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     char path[strlen("files/")+strlen(filename)];   //File path                                        
     ssize_t write_size = 0;
 
-    Packet* pack;
+    Packet *pack;
+
+    int interv, i, j=1;
 
     Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};     //Receiver buffer: used to buffer incoming packets out of order. NEED FOR FLOW CONTROL
-    unsigned long rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size;    //The sequence number of the next byte of data that is expected from the client
+    unsigned long rcv_next = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size;    //The sequence number of the next byte of data that is expected from the client
     unsigned long send_next = cli_info->pack->ack_num;       //The sequence number of the next byte of data to be sent to the client
     /**END**/
 
@@ -325,9 +327,29 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
                 }
 
             }else{
+                printf("Received packet #%lu\n", cli_info->pack->seq_num);
                 //Convert byte array to file
                 write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
                 rcv_next += (unsigned long)cli_info->pack->data_size;
+
+                //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
+                interv = check_buffer(cli_info->pack, rcv_buffer);
+                printf("Buffered packets that can be read: %d\n", interv);
+                for(i=0; i<interv; i++){
+                    //Read every packet in order: everytime from the head of the buffer to avoid gaps in the buffer
+                
+                    //Convert byte array to file
+                    write_size += fwrite(rcv_buffer[0]->data, 1, rcv_buffer[0]->data_size, fp);
+                    rcv_next += (unsigned long)rcv_buffer[0]->data_size;
+
+                    //Slide the buffered packets to the head of the buffer
+                    while(rcv_buffer[j] != NULL){
+                        rcv_buffer[j-1] = rcv_buffer[j];
+                        j++;
+                    }
+                    rcv_buffer[j-1] = NULL;
+                    j=1;
+                }
             }
 
             //Send ACK for the last correctly received packet
@@ -343,8 +365,15 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
 
         } else {
             //Packet received out of order: store packet in the receive buffer
+            printf("Received packet #%lu out of order.\n", cli_info->pack->seq_num);
             if(store_pck(cli_info->pack, rcv_buffer, MAX_RVWD_SIZE)){
-
+                printf("RECEIVE BUFFER: \n");
+                i=0;
+                while(rcv_buffer[i] != NULL){
+                    print_packet(*rcv_buffer[i]);
+                    i++;
+                }
+                printf("RECEIVE BUFFER\n");
                 //Send ACK for the last correctly received packet
                 pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
                 printf("Sending ACK #%lu.\n", rcv_next);
@@ -364,6 +393,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
                 return;
             }       
         }
+        memset(cli_info->pack->data, 0, PAYLOAD);
         pthread_mutex_unlock(&mux_free[thread]);                   
     }
 
