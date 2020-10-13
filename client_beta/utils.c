@@ -21,11 +21,14 @@ int failure(const char* msg){
  * @return double interval
  */
  
- double timeout_interval(Timeout* time) 
+ struct timeval timeout_interval(Timeout* time) 
  {
  	double sample_rtt, interval;
+ 	long long usec;
+ 	struct timeval final;
  	
- 	printf("\033[0;35m\n\n** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
+ 	
+ 	printf("\033[0;35m** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
  	printf("\033[0;35m** time->dev_rtt = %.4f\n", (double)time->dev_rtt);
  	
  	sample_rtt = (float)((time->end.tv_sec - time->start.tv_sec)*1000000L + (time->end.tv_usec - time->start.tv_usec))/1000; // sample rtt in msec
@@ -35,8 +38,17 @@ int failure(const char* msg){
  	time->dev_rtt = (1-BETA) * time->dev_rtt + BETA * fabs(sample_rtt - time->estimated_rtt);
 	
 	interval = (time->estimated_rtt + 4 * (time->dev_rtt));
-	printf("** timeout interval (msec): %f\n\033[0m", interval);
-	return interval; // returns sender's timeout interval in micros 
+	printf("** timeout interval (msec): %f\n", interval);
+	
+	// convert interval double to timeval structure values
+	usec = interval * 1000000;
+	final.tv_sec = usec /1000000;
+	final.tv_usec = usec % 1000000;
+	printf("** final.tv_sec = %ld\n", final.tv_sec);
+	printf("** final.tv_usec = %ld\033[0m\n", final.tv_usec);
+	time->interval = final;
+	 
+	return final; // returns sender's timeout interval in micros 
  }
  
 

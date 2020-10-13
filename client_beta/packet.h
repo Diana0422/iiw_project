@@ -30,10 +30,10 @@ typedef struct timeout_info {
 	double dev_rtt;
 	struct timeval start;
 	struct timeval end;
-	double interval;
+	struct timeval interval;
 } Timeout;
 
-extern double timeout_interval(Timeout*);
+extern struct timeval timeout_interval(Timeout*);
 
 extern Packet* create_packet(unsigned long, unsigned long, size_t, char*, packet_type);
 

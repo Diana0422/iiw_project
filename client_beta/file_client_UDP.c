@@ -267,7 +267,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
 
 int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_out)
 {
-	/**VARIABLE DEFINITIONS**/
+    /**VARIABLE DEFINITIONS**/
     FILE *fp;
     socklen_t addrlen = sizeof(addr);
     ssize_t read_size;
