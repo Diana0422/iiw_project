@@ -28,7 +28,7 @@ unsigned long usable_wnd; //The amount of bytes that can be sent
  ------------------------------------------------------------------------------------------------------------------------------------------------
  */
  
-int request_list(int sd, struct sockaddr_in addr)
+int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
 {
     /**VARIABLE DEFINITIONS**/
     socklen_t addrlen = sizeof(addr);
@@ -45,7 +45,7 @@ int request_list(int sd, struct sockaddr_in addr)
     }   
  
     //Retreive packets
-    while (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) != -1) {
+    while (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) != -1) {
 
         if(pk->data_size == 0){
             //Data transmission completed: check if the receive buffer is empty
@@ -56,7 +56,7 @@ int request_list(int sd, struct sockaddr_in addr)
 
             //Send ACK for the last correctly received packet
             pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
-            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
                 fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
                 free(pk);
                 return 1;
@@ -86,7 +86,7 @@ int request_list(int sd, struct sockaddr_in addr)
         	
             //Send ACK: ack_num updated to the byte the client is waiting to receive                       	
        	    pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
-           	if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+           	if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
            		fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
                 free(pk);
            		return 1;
@@ -98,7 +98,7 @@ int request_list(int sd, struct sockaddr_in addr)
 
                 //Send ACK for the last correctly received packet
             	pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
-                if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+                if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
                     fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
                     free(pk);
                     return 1;
@@ -125,7 +125,7 @@ int request_list(int sd, struct sockaddr_in addr)
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_get(int sd, struct sockaddr_in addr, char* filename)
+int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_out)
 {
     /**VARIABLE DEFINITIONS**/
     FILE *fp;
@@ -152,7 +152,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
     }   
     
     /* Receive data in chunks of 65000 bytes */
-    while((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) != -1)){
+    while((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) != -1)){
     	//Check if transmission has ended.
     	if(pk->data_size == 0){
             //Data transmission completed: check if the receive buffer is empty
@@ -163,7 +163,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
 
             //Send ACK for the last correctly received packet
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
                 fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                 free(pack);
                 return 1;
@@ -202,7 +202,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
             //Send ACK: ack_num updated to the byte the client is waiting to receive                        
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
             printf("Sending ACK #%lu.\n", rcv_next);
-            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
                 fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                 free(pk);
                 free(pack);
@@ -227,7 +227,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
                 //Send ACK for the last correctly received packet
                 printf("Sending ACK #%lu.\n", rcv_next);
                 pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-                if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+                if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
                     fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                     free(pk);
                     free(pack);
@@ -265,7 +265,7 @@ int request_get(int sd, struct sockaddr_in addr, char* filename)
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_put(int sd, struct sockaddr_in addr, char *filename)
+int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_out)
 {
 	/**VARIABLE DEFINITIONS**/
     FILE *fp;
@@ -304,7 +304,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
 
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
         printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);          
-        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
             free(sendline);
             free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
@@ -317,7 +317,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
         while((usable_wnd = send_una + send_wnd - send_next) <= 0){
             //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
             printf("FULL WINDOW: send_una #%lu - Waiting for ACKs\n", send_una);
-            if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
+            if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1){
                 perror("Error: couldn't receive packet from socket.\n");
                 free(pk);
                 fclose(fp);
@@ -338,7 +338,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
 
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
     printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return 1;
     } else {
@@ -349,7 +349,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename)
     while(send_una != send_next){
         printf("Waiting to receive every ACK for the transmitted file.\n");
 
-        if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1){
+        if(recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1){
             perror("Error: couldn't receive packet from socket.\n");
             free(pk);
             fclose(fp);
@@ -385,13 +385,17 @@ int main(int argc, char* argv[])
     /**VARIABLE DEFINITIONS**/   
     int sockfd, res = 0;
 
-	struct sockaddr_in servaddr;
+    struct sockaddr_in servaddr;
     socklen_t addrlen = sizeof(struct sockaddr_in);
 
     char buff[MAXLINE];
     char *tok, *filename;
 
     Packet* pk = NULL;
+    
+    Timeout time_temp;  // timeout values
+    time_temp.estimated_rtt = 0;
+    time_temp.dev_rtt = 0;
     /**END**/
 
     //Create socket
@@ -410,7 +414,7 @@ int main(int argc, char* argv[])
     }
 
     /** 3-WAY HANDSHAKE **/
-    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen);
+    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen, &time_temp);
 
     //Initialize windows and stream variables
     send_una = send_next;
@@ -436,7 +440,7 @@ int main(int argc, char* argv[])
         //Send request
         pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
         printf("Sending packet %lu\n", send_next);  
-        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
+        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) == -1) {
             fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
             free(pk);
             return 1;
@@ -445,7 +449,7 @@ int main(int argc, char* argv[])
         send_next += (unsigned long)pk->data_size;
 
         //Wait for ACK
-        if (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen) == -1) {
+        if (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) == -1) {
             failure("Error: couldn't receive ack.");
         } else {               
             if ((pk->type == ACK) && (pk->ack_num > send_una)) {
@@ -467,7 +471,7 @@ int main(int argc, char* argv[])
         if (strcmp(tok, "list") == 0) {
 
             //Execute LIST
-            res = request_list(sockfd, servaddr);
+            res = request_list(sockfd, servaddr, &time_temp);
 	    
         } else if (strcmp(tok, "get") == 0) {
 
@@ -480,7 +484,7 @@ int main(int argc, char* argv[])
             filename = strdup(tok);
             printf("Filename: %s\n", filename);
 
-            res = request_get(sockfd, servaddr, filename);
+            res = request_get(sockfd, servaddr, filename, &time_temp);
 
         } else if (strcmp(tok, "put") == 0) {
 
@@ -493,7 +497,7 @@ int main(int argc, char* argv[])
             filename = strdup(tok);
             printf("Filename: %s\n", filename);
 
-            res = request_put(sockfd, servaddr, filename);
+            res = request_put(sockfd, servaddr, filename, &time_temp);
 
         } else {
             failure("\033[0;31mError: couldn't retrieve input.\033[0m\n");
@@ -503,7 +507,7 @@ int main(int argc, char* argv[])
             failure("\033[0;31mInput function error.\033[0m\n");
         } else {
             printf("\nOK.\n");
-            demolition(send_next, rcv_next, sockfd, &servaddr, addrlen);
+            demolition(send_next, rcv_next, sockfd, &servaddr, addrlen, &time_temp);
             break;
         }       
     }

@@ -30,6 +30,7 @@ void response_list(int sd, int thread, Client* cli_info)
 {
     /**VARIABLE DEFINITIONS**/
     struct sockaddr_in addr = cli_info->addr;     //Client address
+    Timeout* to_ptr = &cli_info->to_info;    // Pointer to client's timeout info
     socklen_t addrlen = sizeof(addr);            
     DIR* dirp;                                    
     struct dirent* pdirent;
@@ -46,11 +47,11 @@ void response_list(int sd, int thread, Client* cli_info)
       
     //AUDIT
     printf("response_list started.\n");
-
+    
     //Send ACK
     printf("Sending ACK #%lu.\n", rcv_next);
     pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
-    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
         free(pk);
         return;
@@ -84,7 +85,7 @@ void response_list(int sd, int thread, Client* cli_info)
         if((payld += strlen(buff)) > PAYLOAD){
             //Send data packet with filenames
             pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
-            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
                 fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
                 return;
             }
@@ -110,7 +111,7 @@ void response_list(int sd, int thread, Client* cli_info)
 
     //Send last data packet with filenames (amount of data smaller than PAYLOAD)
     pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
         fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
         return;
     }
@@ -131,7 +132,7 @@ void response_list(int sd, int thread, Client* cli_info)
     
     
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
     	fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
     } else {
@@ -152,6 +153,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 {
     /**VARIABLE DEFINITIONS**/
     struct sockaddr_in addr = cli_info->addr;     //Client address
+    Timeout* to_ptr = &cli_info->to_info;  //Pointer to client's timeout info
     socklen_t addrlen = sizeof(addr);
 
     char *sendline;
@@ -174,7 +176,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     //Send ACK
     printf("Sending ACK #%lu.\n", rcv_next);
     pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
-    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
         free(pk);
         return;
@@ -209,7 +211,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
         printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);     
-        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
             free(sendline);
             free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
@@ -236,7 +238,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
     printf("Sending packet #%lu (unacknowledged byte is #%lu)\n", send_next, send_una);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
     } else {
@@ -271,6 +273,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
 {
     /**VARIABLE DEFINITIONS**/
     struct sockaddr_in addr = cli_info->addr;       //Client address
+    Timeout* to_ptr = &cli_info->to_info;		//Pointer to client's timeout info.
     socklen_t addrlen = sizeof(addr);      
 
     FILE *fp;                                       //File descriptor
@@ -291,7 +294,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     //Send ACK
     printf("Sending ACK #%lu.\n", rcv_next);
     pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
-    if (send_packet(pack, listensd, (struct sockaddr*)&addr, addrlen) == -1) {
+    if (send_packet(pack, listensd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
         free(pack);
         return;
@@ -355,7 +358,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
             //Send ACK for the last correctly received packet
             pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
             printf("Sending ACK #%lu.\n", rcv_next);
-            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+            if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
                 fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                 free(pack);
                 return;
@@ -377,7 +380,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
                 //Send ACK for the last correctly received packet
                 pack = create_packet(send_next, rcv_next, 0, NULL, ACK);
                 printf("Sending ACK #%lu.\n", rcv_next);
-                if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen) == -1) {
+                if (send_packet(pack, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
                     fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
                     free(pack);
                     pthread_mutex_unlock(&mux_free[thread]); 
@@ -482,6 +485,7 @@ int main(void)
     struct sockaddr_in servaddr;
     socklen_t cliaddrlen = sizeof(cliaddr);
     socklen_t servaddrlen = sizeof(servaddr);
+    Timeout time_temp;		//Structure to save temporary timeout values
 
     key_t ksem_client = 324;    //Semaphore key to initialize a semaphore
     struct sembuf ops;          //Structure for semaphore operations
@@ -577,22 +581,34 @@ int main(void)
         exit(EXIT_FAILURE);
     }
     
+    // Initialize timeout values
+    time_temp.estimated_rtt = 0;
+    time_temp.dev_rtt = 0;
+    struct timeval start = time_temp.start;
+    struct timaval reset;
+    
     /**EXECUTING SERVER**/
     printf("\033[0;34mWaiting for a request...\033[0m\n");
 
     while(1) {
+    
+    	// get initial timestamp
+    	gettimeofday(&start, NULL);
+    	time_temp.start = start;
+    	
         //Receive request from client
-        if (recv_packet(pk_rcv, listensd, (struct sockaddr*)&cliaddr, cliaddrlen) == -1) {
+        if (recv_packet(pk_rcv, listensd, (struct sockaddr*)&cliaddr, cliaddrlen, &time_temp) == -1) {
             fprintf(stderr, "Error: couldn't receive packet.\n");
             free(pk_rcv);
             exit(EXIT_FAILURE);
+
 
         } else {
             //If the packet carries a request for a new connection, enstablish a connection
             if (pk_rcv->type == SYN) {
                 printf("\033[0;34mReceived a new connection request.\033[0m\n");
                 //3-WAY HANDSHAKE
-                if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen) == -1){
+                if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp) == -1){
                     fprintf(stderr, "\033[0;31mConnection failure.\033[0m\n");
                     printf("\033[0;34mWaiting for a request...\033[0m\n");
                     continue;
@@ -602,7 +618,7 @@ int main(void)
 
                     //Add new client address to the list
                     pthread_mutex_lock(&list_mux);
-                    insert_client(&cliaddr_head, cliaddr, pk_hds);
+                    insert_client(&cliaddr_head, cliaddr, pk_hds, time_temp);
                     pthread_mutex_unlock(&list_mux);
                        
                     //Signal the serving threads 
@@ -620,7 +636,7 @@ int main(void)
                 printf("\033[0;34mReceived a request for connection demolition.\033[0m\n");
                 
                 //3-WAY HANDSHAKE
-                if(demolition(listensd, &cliaddr, cliaddrlen) == -1){
+                if(demolition(listensd, &cliaddr, cliaddrlen, &time_temp) == -1){
                     fprintf(stderr, "\033[0;31mDemolition failure.\033[0m\n");
                     printf("\033[0;34mWaiting for a request...\033[0m\n");
                     continue;

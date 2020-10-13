@@ -7,7 +7,7 @@
           packet: last packet received from the client during the handshake
  */
 
-void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet){
+void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet, Timeout to){
     
     Client *new;
     if((new = (Client*)malloc(sizeof(Client))) == NULL){
@@ -28,7 +28,8 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet){
 
     new->addr = cli_addr;
     new->pack = packet; 
-
+    
+    new->to_info = to;  // Copy timeout info in client data
     //printf("Packet copied in client info.\n");
     //print_packet(*pack);
     

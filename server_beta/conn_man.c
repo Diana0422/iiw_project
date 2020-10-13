@@ -1,6 +1,6 @@
 #include "server.h"
 
-int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen)
+int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout* to)
 {
     *init_seq = rand_lim(1000);
 
@@ -8,7 +8,7 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
 
     //Send a SYNACK to connect to the client    
     printf("Server sends a SYNACK packet.\n");   
-    while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen) == -1) {
+    while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
             exit(EXIT_FAILURE);
@@ -17,7 +17,7 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
 
     //Wait for ACK
     printf("Server waiting for the ACK to initialize the connection.\n");
-    while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen) == -1) {
+    while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
             exit(EXIT_FAILURE);
@@ -32,7 +32,7 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
     return 0;
 }
 
-int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen){
+int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout* to){
    
     Packet *pk = (Packet*)malloc(sizeof(Packet));
     if(pk == NULL){
@@ -44,7 +44,7 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen){
     
     //Send a SYNACK to connect to the client    
     printf("Server sends a FINACK packet.\n");   
-    while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen) == -1) {
+    while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
             exit(EXIT_FAILURE);
@@ -53,7 +53,7 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen){
 
     //Wait for ACK
     printf("Server waiting for the ACK to close the connection.\n");
-    while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen) == -1) {
+    while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
             exit(EXIT_FAILURE);

@@ -15,6 +15,31 @@ int failure(const char* msg){
 	exit(-1);
 }
 
+/* TIMEOUT_INTERVAL
+ * @brief returns a timeout interval to wait for ack to be received
+ * @param time: pointer to Timeout struct
+ * @return double interval
+ */
+ 
+ double timeout_interval(Timeout* time) 
+ {
+ 	double sample_rtt, interval, t1, t2;
+ 	
+ 	printf("\033[0;35m\n\n** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
+ 	printf("\033[0;35m** time->dev_rtt = %.4f\n", (double)time->dev_rtt);
+ 	
+ 	sample_rtt = (float)((time->end.tv_sec - time->start.tv_sec)*1000000L + (time->end.tv_usec - time->start.tv_usec))/1000; // sample rtt in msec
+ 	
+ 	printf("** sample rtt (msec): %f\n", sample_rtt);
+ 	time->estimated_rtt = (1-ALPHA) * time->estimated_rtt + ALPHA * sample_rtt;
+ 	time->dev_rtt = (1-BETA) * time->dev_rtt + BETA * abs(sample_rtt - time->estimated_rtt);
+	
+	interval = (time->estimated_rtt + 4 * (time->dev_rtt));
+	printf("** timeout interval (msec): %f\n\033[0m", interval);
+	return interval; // returns sender's timeout interval in micros 
+ }
+ 
+
 /* RAND_LIM 
  * @brief return a random number between 0 and limit inclusive.
  * @param limit: limit to the integer randomization

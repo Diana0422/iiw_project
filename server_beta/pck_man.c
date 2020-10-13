@@ -103,8 +103,9 @@ Packet unserialize_packet(char* buffer)
  * @return 1 = error, n = ok
  */
  
- int send_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen)
+ int send_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen, Timeout* t)
  {
+ 	
  	char* buffer = (char*)malloc(MAX_DGRAM_SIZE);
  	if(buffer == NULL){
  		perror("Malloc failed");
@@ -118,6 +119,8 @@ Packet unserialize_packet(char* buffer)
 
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
 
+	gettimeofday(&t->start, NULL);
+	printf("STARTING TIME COUNTER FOR SAMPLE RTT:\n");
  	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		return -1;
 	}
@@ -132,19 +135,27 @@ Packet unserialize_packet(char* buffer)
  * @return error: -1, success: n
  */
  
- int recv_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen) 
+ int recv_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen, Timeout* t) 
  {
  	char buffer[MAX_DGRAM_SIZE];
  	int n;
+ 	double to;
  	
  	memset(buffer, 0, MAX_DGRAM_SIZE);
 
+ 	
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
  	} else {
+ 		printf("ENDING TIME COUNTER FOR SAMPLE RTT.\n");
+ 		gettimeofday(&t->end, NULL);
  		*pkt = unserialize_packet(buffer);
 
  		//AUDIT
+ 		// Print timeout interval
+ 		to = timeout_interval(t);
+ 		printf("timeout: %f.\n", to);
+ 		
 		print_packet(*pkt);
 
 	} 

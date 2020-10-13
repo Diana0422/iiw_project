@@ -25,14 +25,17 @@
 #define MAX_DGRAM_SIZE 65507
 #define THREAD_POOL	10
 
+//extern void print_timeout(Timeout*);
+
 typedef struct node{
 	struct sockaddr_in addr;   //Client's address: used for contact
 	Packet* pack;			   //Packet received from the client
 	int server;				   //ID of the thread serving the client
 	struct node* next;		   //Pointer to the next client in the list 
+	Timeout to_info;                 // Timeout values structure
 }Client;
 
-extern void insert_client(Client**, struct sockaddr_in, Packet*);
+extern void insert_client(Client**, struct sockaddr_in, Packet*, Timeout);
 
 extern void get_client(Client**, int, Client**);
 

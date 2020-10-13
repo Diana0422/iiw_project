@@ -1,12 +1,12 @@
 #include "client.h"
 
-void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen)
+void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout * to)
 {
     pk = create_packet(0, 0, 0, NULL, SYN);
 
     //Send first packet to initialize the connection     
     printf("Client sends first SYN packet.\n");  
-    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
+    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
@@ -14,7 +14,7 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
 
     //Wait for confirmation
     printf("Client waiting for SYNACK packet.\n");
-    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
+    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
@@ -33,14 +33,14 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
     pk = create_packet(*init_seq, *init_ack, 0, NULL, ACK);    
 
     printf("Client initializes connection, sending the last ACK.\n");     
-    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
+    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
     }
 }
 
-void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen){
+void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout* to){
   
     Packet *pk = (Packet*)malloc(sizeof(Packet));
     if(pk == NULL){
@@ -52,7 +52,7 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
 
     //Send FIN packet to close the connection     
     printf("Client sends FIN packet.\n");  
-    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
+    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
@@ -60,7 +60,7 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
 
     //Wait for confirmation
     printf("Client waiting for FINACK packet.\n");
-    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
+    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
@@ -77,7 +77,7 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
     pk = create_packet(sequence, ack, 0, NULL, ACK);    
 
     printf("Client terminates connection, sending the last ACK.\n");     
-    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen) == -1) {
+    while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
