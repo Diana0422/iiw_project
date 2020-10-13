@@ -143,7 +143,6 @@ Packet unserialize_packet(char* buffer)
  	memset(buffer, 0, MAX_DGRAM_SIZE);
 
  	int n;
- 	double to;
 
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		return -1;
@@ -154,7 +153,7 @@ Packet unserialize_packet(char* buffer)
 
  		//AUDIT
  		print_packet(*pkt);
- 		to = timeout_interval(t);
+ 		timeout_interval(t);
 	} 
 	
 	return n;

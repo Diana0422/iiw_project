@@ -19,6 +19,8 @@
 #include <string.h>
 #include <errno.h>
 #include <dirent.h>
+#include <sys/time.h>
+#include <math.h>
 
 #include "packet.h"
 

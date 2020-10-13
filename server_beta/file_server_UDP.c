@@ -585,7 +585,6 @@ int main(void)
     time_temp.estimated_rtt = 0;
     time_temp.dev_rtt = 0;
     struct timeval start = time_temp.start;
-    struct timaval reset;
     
     /**EXECUTING SERVER**/
     printf("\033[0;34mWaiting for a request...\033[0m\n");

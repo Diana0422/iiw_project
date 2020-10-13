@@ -19,6 +19,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "packet.h"
 

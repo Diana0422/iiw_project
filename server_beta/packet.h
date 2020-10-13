@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <time.h>
+#include <sys/time.h>
 #include "server.h"
 
 #define PAYLOAD 65467

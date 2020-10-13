@@ -41,7 +41,7 @@ unsigned long rand_lim(int limit) {
  
  double timeout_interval(Timeout* time) 
  {
- 	double sample_rtt, interval, t1, t2;
+ 	double sample_rtt, interval;
  	
  	printf("\033[0;35m** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
  	printf("\033[0;35m** time->dev_rtt = %.4f\n", (double)time->dev_rtt);
@@ -50,7 +50,7 @@ unsigned long rand_lim(int limit) {
  	
  	printf("** sample rtt (msec): %f\n", sample_rtt);
  	time->estimated_rtt = (1-ALPHA) * time->estimated_rtt + ALPHA * sample_rtt;
- 	time->dev_rtt = (1-BETA) * time->dev_rtt + BETA * abs(sample_rtt - time->estimated_rtt);
+ 	time->dev_rtt = (1-BETA) * time->dev_rtt + BETA * fabs(sample_rtt - time->estimated_rtt);
 	
 	interval = (time->estimated_rtt + 4 * (time->dev_rtt));
 	printf("** timeout interval (msec): %f\n\033[0m", interval);
