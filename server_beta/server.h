@@ -20,6 +20,7 @@
 #include <dirent.h>
 #include <stdbool.h>
 #include <math.h>
+#include <signal.h>
 
 #include "packet.h"
 

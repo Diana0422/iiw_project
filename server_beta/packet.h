@@ -51,9 +51,9 @@ extern int send_packet(Packet*, int, struct sockaddr*, socklen_t, Timeout*);
 
 extern int recv_packet(Packet*, int, struct sockaddr*, socklen_t, Timeout*);
 
-extern int handshake(Packet*, unsigned long*, int, struct sockaddr_in*, socklen_t, Timeout*);
+extern int handshake(Packet*, unsigned long*, int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
-extern int demolition(int, struct sockaddr_in*, socklen_t, Timeout*);
+extern int demolition(int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
 extern void print_packet(Packet);
 

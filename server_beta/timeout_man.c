@@ -36,17 +36,12 @@
 	return final; // returns sender's timeout interval in micros 
  }
 
- void arm_timer(Timeout* to, timer_t id, int first){
+ void arm_timer(Timeout* to, timer_t id){
 	struct itimerspec its;
 	memset(&its, 0, sizeof(its));
 
-	if(first){
-		its.it_value.tv_sec = TIMER_BASE;
-		its.it_value.tv_nsec = TIMER_BASE % 1000000000;
-	}else{
-		its.it_value.tv_sec = to->interval.tv_sec;
-		its.it_value.tv_nsec = to->interval.tv_sec % 1000000000;
-	}
+	its.it_value.tv_sec = to->interval.tv_sec;
+	its.it_value.tv_nsec = to->interval.tv_sec % 1000000000;
 
 	if(timer_settime(id, 0, &its, NULL) == -1){
 		failure("Timer updating failed.\n");
