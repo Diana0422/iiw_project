@@ -1,6 +1,6 @@
 #include "client.h"
 
-void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout * to)
+void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout * to, timer_t timerid)
 {
     pk = create_packet(0, 0, 0, NULL, SYN);
 
@@ -11,6 +11,8 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
             continue;
         }
     }
+
+    arm_timer(to, timerid, 1);
 
     //Wait for confirmation
     printf("Client waiting for SYNACK packet.\n");
@@ -24,6 +26,8 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
         free(pk);
         failure("Connection failed.");
     }
+
+    disarm_timer(timerid);
    
     //Close the handshake
     *init_ack = pk->seq_num + 1;
@@ -40,7 +44,7 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
     }
 }
 
-void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout* to){
+void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout* to, timer_t timerid){
   
     Packet *pk = (Packet*)malloc(sizeof(Packet));
     if(pk == NULL){
@@ -58,6 +62,8 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
         }
     }
 
+    arm_timer(to, timerid, 0);
+
     //Wait for confirmation
     printf("Client waiting for FINACK packet.\n");
     while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
@@ -70,6 +76,8 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
         free(pk);
         failure("Demolition failed.");
     }
+
+    disarm_timer(timerid);
    
     //Close the connection
     free(pk);

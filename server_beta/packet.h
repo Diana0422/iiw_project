@@ -35,6 +35,12 @@ typedef struct timeout_info {
 
 extern struct timeval timeout_interval(Timeout*);
 
+extern void arm_timer(Timeout*, timer_t);
+
+extern void disarm_timer(timer_t);
+
+extern void timeout_handler(int, siginfo_t*, void*);
+
 extern Packet* create_packet(unsigned long, unsigned long, size_t, char*, packet_type);
 
 extern char* serialize_packet(Packet*);

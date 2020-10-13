@@ -7,7 +7,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <time.h>
-#include "client.h"
 
 #define PAYLOAD 65467
 
@@ -35,6 +34,12 @@ typedef struct timeout_info {
 
 extern struct timeval timeout_interval(Timeout*);
 
+extern void arm_timer(Timeout*, timer_t, int);
+
+extern void disarm_timer(timer_t);
+
+extern void timeout_handler(int, siginfo_t*, void*);
+
 extern Packet* create_packet(unsigned long, unsigned long, size_t, char*, packet_type);
 
 extern char* serialize_packet(Packet*);
@@ -45,9 +50,9 @@ extern int send_packet(Packet*, int, struct sockaddr*, socklen_t, Timeout*);
 
 extern int recv_packet(Packet*, int, struct sockaddr*, socklen_t, Timeout*);
 
-extern void handshake(Packet*, unsigned long*, unsigned long*, int, struct sockaddr_in*, socklen_t, Timeout*);
+extern void handshake(Packet*, unsigned long*, unsigned long*, int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
-extern void demolition(unsigned long, unsigned long, int, struct sockaddr_in*, socklen_t, Timeout*);
+extern void demolition(unsigned long, unsigned long, int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
 extern void print_packet(Packet);
 

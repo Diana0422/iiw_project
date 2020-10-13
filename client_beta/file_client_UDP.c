@@ -310,6 +310,7 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
+
         printf("Packet #%lu correctly sent\n", send_next);
         send_next += (unsigned long)pk->data_size;
 
@@ -396,6 +397,11 @@ int main(int argc, char* argv[])
     Timeout time_temp;  // timeout values
     time_temp.estimated_rtt = 0;
     time_temp.dev_rtt = 0;
+    
+    struct sigevent sev;
+    timer_t timerid;
+
+    struct sigaction sa;
     /**END**/
 
     //Create socket
@@ -413,8 +419,23 @@ int main(int argc, char* argv[])
         failure("error in inet_pton.");
     }
 
+    //Construct handlers
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = timeout_handler;
+    if(sigaction(SIGRTMIN, &sa, NULL) == -1){
+        failure("Sigaction failed.\n");
+    }
+
+    //Create timer
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = SIGRTMIN;
+    sev.sigev_value.sival_ptr = &timerid;
+    if(timer_create(CLOCK_REALTIME, &sev, &timerid) == -1){
+        failure("Timer creation failed.\n");
+    }
+
     /** 3-WAY HANDSHAKE **/
-    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen, &time_temp);
+    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen, &time_temp, timerid);
 
     //Initialize windows and stream variables
     send_una = send_next;
@@ -507,7 +528,7 @@ int main(int argc, char* argv[])
             failure("\033[0;31mInput function error.\033[0m\n");
         } else {
             printf("\nOK.\n");
-            demolition(send_next, rcv_next, sockfd, &servaddr, addrlen, &time_temp);
+            demolition(send_next, rcv_next, sockfd, &servaddr, addrlen, &time_temp, timerid);
             break;
         }       
     }

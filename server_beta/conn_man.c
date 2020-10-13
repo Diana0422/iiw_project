@@ -1,7 +1,8 @@
 #include "server.h"
 
-int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout* to)
+int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout* to, timer_t timerid)
 {
+
     *init_seq = rand_lim(1000);
 
     pk = create_packet(*init_seq, 0, 0, (char*)NULL, SYNACK);
@@ -14,6 +15,8 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
             exit(EXIT_FAILURE);
         }
     }
+
+    arm_timer(to, timerid);
 
     //Wait for ACK
     printf("Server waiting for the ACK to initialize the connection.\n");
@@ -29,10 +32,12 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
         return -1;
     }
 
+    disarm_timer(timerid);
+
     return 0;
 }
 
-int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout* to){
+int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout* to, timer_t timerid){
    
     Packet *pk = (Packet*)malloc(sizeof(Packet));
     if(pk == NULL){
@@ -51,6 +56,8 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout*
         }
     }
 
+    arm_timer(to, timerid);
+
     //Wait for ACK
     printf("Server waiting for the ACK to close the connection.\n");
     while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
@@ -64,6 +71,8 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout*
         free(pk);
         return -1;
     }
+
+    disarm_timer(timerid);
 
     return 0;
     

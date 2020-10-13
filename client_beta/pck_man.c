@@ -112,7 +112,7 @@ Packet unserialize_packet(char* buffer)
  	memset(buffer, 0, MAX_DGRAM_SIZE);
 
  	int n;
- 	//AUDIT
+ 	
 	print_packet(*pkt);
 
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);

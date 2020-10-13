@@ -20,6 +20,8 @@ int listensd;       //Listening socket descriptor: transmission
 
 Client *cliaddr_head;   //Pointer to Client structure: head of the client list
 
+timer_t timerid[THREAD_POOL];  //Array of timer descriptors to assigned each one to a thread
+
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
  LIST OPERATION
@@ -485,7 +487,12 @@ int main(void)
     struct sockaddr_in servaddr;
     socklen_t cliaddrlen = sizeof(cliaddr);
     socklen_t servaddrlen = sizeof(servaddr);
+
     Timeout time_temp;		//Structure to save temporary timeout values
+    struct sigevent sev;
+    timer_t main_timerid;
+
+    struct sigaction sa;
 
     key_t ksem_client = 324;    //Semaphore key to initialize a semaphore
     struct sembuf ops;          //Structure for semaphore operations
@@ -585,6 +592,28 @@ int main(void)
     time_temp.estimated_rtt = 0;
     time_temp.dev_rtt = 0;
     struct timeval start = time_temp.start;
+
+    //Construct handlers
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = timeout_handler;
+    if(sigaction(SIGRTMIN, &sa, NULL) == -1){
+        failure("Sigaction failed.\n");
+    }
+
+    //Create timers
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = SIGRTMIN;
+    for(i=0; i<THREAD_POOL; i++){
+        sev.sigev_value.sival_ptr = &timerid[i];
+        if(timer_create(CLOCK_REALTIME, &sev, &timerid[i]) == -1){
+            failure("Timer creation failed.\n");
+        }
+    }
+
+    sev.sigev_value.sival_ptr = main_timerid;
+    if(timer_create(CLOCK_REALTIME, &sev, &main_timerid) == -1){
+        failure("Timer creation failed.\n");
+    }
     
     /**EXECUTING SERVER**/
     printf("\033[0;34mWaiting for a request...\033[0m\n");
@@ -607,7 +636,7 @@ int main(void)
             if (pk_rcv->type == SYN) {
                 printf("\033[0;34mReceived a new connection request.\033[0m\n");
                 //3-WAY HANDSHAKE
-                if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp) == -1){
+                if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp, main_timerid) == -1){
                     fprintf(stderr, "\033[0;31mConnection failure.\033[0m\n");
                     printf("\033[0;34mWaiting for a request...\033[0m\n");
                     continue;
@@ -635,7 +664,7 @@ int main(void)
                 printf("\033[0;34mReceived a request for connection demolition.\033[0m\n");
                 
                 //3-WAY HANDSHAKE
-                if(demolition(listensd, &cliaddr, cliaddrlen, &time_temp) == -1){
+                if(demolition(listensd, &cliaddr, cliaddrlen, &time_temp, main_timerid) == -1){
                     fprintf(stderr, "\033[0;31mDemolition failure.\033[0m\n");
                     printf("\033[0;34mWaiting for a request...\033[0m\n");
                     continue;
