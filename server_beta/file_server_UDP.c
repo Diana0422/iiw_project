@@ -40,12 +40,13 @@ void response_list(int sd, int thread, Client* cli_info, Timeout* to)
     Packet *pk;
     char* buff;
     int payld = 0;    //Used to insert as much filenames as possibile into one packet (Transmission efficiency)
+    short first = 1;  //Used to check if the first packet whould be sent
 
     unsigned long rcv_next = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
     unsigned long send_next = cli_info->pack->ack_num;     //The sequence number of the next byte of data to be sent to the client
     unsigned long send_una = send_next;                    //The sequence number of the first byte of data that has been sent but not yet acknowledged
     unsigned long send_wnd = INIT_WND_SIZE;                //The size of the send window. The window specifies the total number of bytes that any device may have unacknowledged at any one time
-    unsigned long usable_wnd = send_wnd;                   //The amount of bytes that can be sent
+    unsigned long usable_wnd = send_wnd;                   //The amount of bytes that can be sent 	
     /**END**/
       
     //AUDIT
@@ -96,7 +97,10 @@ void response_list(int sd, int thread, Client* cli_info, Timeout* to)
             free(pk);
 
             //Start timer
-            arm_timer(to, timerid[thread], 0);
+            if(first){
+            	arm_timer(to, timerid[thread], 0);
+            	first = 0;
+            }           
             //SHOULD BE HANDLED THE RECEPTION OF AN ACK WITHOUT BLOCKING THE THREAD: for restarting the timer and recompute timeout_interval
 
             while((usable_wnd = send_una + send_wnd - send_next) <= 0){
@@ -110,6 +114,7 @@ void response_list(int sd, int thread, Client* cli_info, Timeout* to)
                     	arm_timer(to, timerid[thread], 0);
                     }else{
                     	disarm_timer(timerid[thread]);
+                    	first = 1; //To restart the timer if there's still data to send
                     }
                 }
                 pthread_mutex_unlock(&mux_free[thread]);
@@ -128,7 +133,10 @@ void response_list(int sd, int thread, Client* cli_info, Timeout* to)
     send_next += (unsigned long)pk->data_size;
     free(pk);
 
-    arm_timer(to, timerid[thread], 0);
+    if(first){
+    	arm_timer(to, timerid[thread], 0);
+    	first = 0;
+    }  
 
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
