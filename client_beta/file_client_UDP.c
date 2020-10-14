@@ -92,6 +92,7 @@ int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
            		return 1;
            	}
             free(pk);
+
         } else {
             //Packet received out of order: store packet in the receive buffer
          	if(store_pck(pk, rcv_buffer, MAX_BUFF_SIZE)){
@@ -395,8 +396,9 @@ int main(int argc, char* argv[])
     Packet* pk = NULL;
     
     Timeout time_temp;  // timeout values
-    time_temp.estimated_rtt = 0;
-    time_temp.dev_rtt = 0;
+    //time_temp.estimated_rtt = 0;
+    //time_temp.dev_rtt = 0;
+    memset(&time_temp, 0, sizeof(time_temp));
     
     struct sigevent sev;
     timer_t timerid;
@@ -469,6 +471,8 @@ int main(int argc, char* argv[])
         printf("Packet #%lu correctly sent\n", send_next);
         send_next += (unsigned long)pk->data_size;
 
+        arm_timer(&time_temp, timerid, 0);
+
         //Wait for ACK
         if (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) == -1) {
             failure("Error: couldn't receive ack.");
@@ -476,13 +480,16 @@ int main(int argc, char* argv[])
             if ((pk->type == ACK) && (pk->ack_num > send_una)) {
                 printf("Received ACK #%lu.\n", pk->ack_num);
                 send_una = (int)pk->ack_num;
-                //RESTART TIMER IF send_una < send_next 
+                disarm_timer(timerid);
             } else {
                 printf("Ack NOT OK.\n");
+                disarm_timer(timerid);
                 return 1;
             }
         }
         free(pk);
+        //Compute the timeout interval for exchange: REQUEST, ACK
+        timeout_interval(&time_temp);
 
         //Retrieve command       
         tok = strtok(buff, " \n");

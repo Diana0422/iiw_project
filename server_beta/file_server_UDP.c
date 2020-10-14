@@ -20,6 +20,7 @@ int listensd;       //Listening socket descriptor: transmission
 
 Client *cliaddr_head;   //Pointer to Client structure: head of the client list
 
+//Timeout to[THREAD_POOL];    //Timeout structures for every client, since RTT could be different for every client
 timer_t timerid[THREAD_POOL];  //Array of timer descriptors to assigned each one to a thread
 
 /*
@@ -28,11 +29,11 @@ timer_t timerid[THREAD_POOL];  //Array of timer descriptors to assigned each one
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void response_list(int sd, int thread, Client* cli_info)
+void response_list(int sd, int thread, Client* cli_info, Timeout* to)
 {
     /**VARIABLE DEFINITIONS**/
     struct sockaddr_in addr = cli_info->addr;     //Client address
-    Timeout* to_ptr = &cli_info->to_info;    // Pointer to client's timeout info
+    //Timeout* to_ptr = &cli_info->to_info;    // Pointer to client's timeout info
     socklen_t addrlen = sizeof(addr);            
     DIR* dirp;                                    
     struct dirent* pdirent;
@@ -53,7 +54,7 @@ void response_list(int sd, int thread, Client* cli_info)
     //Send ACK
     printf("Sending ACK #%lu.\n", rcv_next);
     pk = create_packet(send_next, rcv_next, 0, NULL, ACK);
-    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
+    if (send_packet(pk, listensd, (struct sockaddr*)&addr, addrlen, to) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pk->ack_num);
         free(pk);
         return;
@@ -87,20 +88,29 @@ void response_list(int sd, int thread, Client* cli_info)
         if((payld += strlen(buff)) > PAYLOAD){
             //Send data packet with filenames
             pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
-            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to) == -1) {
                 fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
                 return;
             }
             send_next += (int)pk->data_size;
             free(pk);
 
+            //Start timer
+            arm_timer(to, timerid[thread], 0);
+            //SHOULD BE HANDLED THE RECEPTION OF AN ACK WITHOUT BLOCKING THE THREAD: for restarting the timer and recompute timeout_interval
+
             while((usable_wnd = send_una + send_wnd - send_next) <= 0){
-                //FULL WINDOW: wait for ACK until either it is received (restart the timer and update window) or the timer expires (retransmit send_una packet)
+                //FULL WINDOW: wait for ACK until either it is received or the timer expires
                 pthread_mutex_lock(&mux_avb[thread]);
                 if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
                     printf("Ack #%lu recevied.\n", cli_info->pack->ack_num);
                     send_una = cli_info->pack->ack_num;
-                    //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
+                    //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS
+                    if(send_una != send_next){
+                    	arm_timer(to, timerid[thread], 0);
+                    }else{
+                    	disarm_timer(timerid[thread]);
+                    }
                 }
                 pthread_mutex_unlock(&mux_free[thread]);
             }
@@ -109,16 +119,16 @@ void response_list(int sd, int thread, Client* cli_info)
         }       
     }
 
-    //IMPLEMENTING THE RECEPTION OF AN ACK AS AN EVENT ON WHICH THE THREAD RESPONDS WITH UPDATING THE WINDOW WOULD BE AWSOME
-
     //Send last data packet with filenames (amount of data smaller than PAYLOAD)
     pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to) == -1) {
         fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
         return;
     }
     send_next += (unsigned long)pk->data_size;
     free(pk);
+
+    arm_timer(to, timerid[thread], 0);
 
     //Wait for ACK until every packet is correctly received
     while(send_una != send_next){
@@ -126,15 +136,17 @@ void response_list(int sd, int thread, Client* cli_info)
         if((cli_info->pack->type == ACK) && (cli_info->pack->ack_num > send_una)){
             printf("Ack #%lu recevied.\n", cli_info->pack->ack_num);
             send_una = cli_info->pack->ack_num;
-            //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS: send_una != send_next
-            //ELSE, STOP TIMER
+            to->end = cli_info->to_info.end;
+            //RESTART TIMER IF THERE ARE STILL UNACKNOWLEDGED PACKETS
+            arm_timer(to, timerid[thread], 0);
         }
         pthread_mutex_unlock(&mux_free[thread]);
     }
-    
-    
+
+    disarm_timer(timerid[thread]);
+       
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to_ptr) == -1) {
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, to) == -1) {
     	fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
     } else {
@@ -424,6 +436,9 @@ void* thread_service(void* arg){
 	char* cmd, *filename;       //Used to distinguish requests and files
 
 	int id = *((int*)arg);      //Thread ID: used to assign a client to a working thread  
+
+	Timeout timeout;
+    memset(&timeout, 0, sizeof(timeout));
     /**END**/
     
 	while(1){
@@ -441,11 +456,13 @@ void* thread_service(void* arg){
         //Acquire client
         pthread_mutex_lock(&list_mux);
         get_client(&cliaddr_head, id, &recipient);
+        timeout = recipient->to_info;
         pthread_mutex_unlock(&list_mux);
 		
 	    //Retrieve request
         pthread_mutex_lock(&mux_avb[id]);
 	    cmd = strtok(recipient->pack->data, " \n");
+	    //timeout.end = recipient->to_info.end;
         pthread_mutex_unlock(&mux_free[id]);
 
 	    printf("Selected request: %s\n", cmd);
@@ -453,7 +470,7 @@ void* thread_service(void* arg){
 	    //SERVE THE CLIENT
 	    if (strcmp(cmd, "list") == 0) {
 	        //Respond to LIST
-	        response_list(listensd, id, recipient); 
+	        response_list(listensd, id, recipient, &timeout); 
 
 	    } else if (strcmp(cmd, "get") == 0) {
 	        //Respond to GET
@@ -491,13 +508,13 @@ int main(void)
     Timeout time_temp;		//Structure to save temporary timeout values
     struct sigevent sev;
     timer_t main_timerid;
-
+    
     struct sigaction sa;
 
     key_t ksem_client = 324;    //Semaphore key to initialize a semaphore
     struct sembuf ops;          //Structure for semaphore operations
 
-    pthread_t tid;              
+    pthread_t tid[THREAD_POOL];              
     int thread, i; 
     unsigned long init_seq;     //Supporting variables for different kind of task: indexing, returning values or temporary storage
     Packet* pk_rcv;      //Packet used to receive from socket
@@ -573,7 +590,7 @@ int main(void)
     //Create thread pool
     for(i=0; i<THREAD_POOL; i++){
         indexes[i] = i;       
-        if(pthread_create(&tid, 0, (void*)thread_service, (void*)(&indexes[i]))){
+        if(pthread_create(&tid[i], 0, (void*)thread_service, (void*)(&indexes[i]))){
             fprintf(stderr, "pthread_create() failed");
             close(listensd);
             exit(-1);
@@ -588,19 +605,17 @@ int main(void)
         exit(EXIT_FAILURE);
     }
     
-    // Initialize timeout values
-    time_temp.estimated_rtt = 0;
-    time_temp.dev_rtt = 0;
-    struct timeval start = time_temp.start;
+    //Initialize timeout values
+    memset(&time_temp, 0, sizeof(time_temp));
 
-    //Construct handlers
+    //Construct signal handlers
     sa.sa_flags = SA_SIGINFO;
     sa.sa_sigaction = timeout_handler;
     if(sigaction(SIGRTMIN, &sa, NULL) == -1){
         failure("Sigaction failed.\n");
     }
 
-    //Create timers
+    //Create timers for workers and main thread
     sev.sigev_notify = SIGEV_SIGNAL;
     sev.sigev_signo = SIGRTMIN;
     for(i=0; i<THREAD_POOL; i++){
@@ -620,16 +635,11 @@ int main(void)
 
     while(1) {
     
-    	// get initial timestamp
-    	gettimeofday(&start, NULL);
-    	time_temp.start = start;
-    	
         //Receive request from client
         if (recv_packet(pk_rcv, listensd, (struct sockaddr*)&cliaddr, cliaddrlen, &time_temp) == -1) {
             fprintf(stderr, "Error: couldn't receive packet.\n");
             free(pk_rcv);
             exit(EXIT_FAILURE);
-
 
         } else {
             //If the packet carries a request for a new connection, enstablish a connection
@@ -683,12 +693,13 @@ int main(void)
                 dispatch_client(cliaddr_head, cliaddr, &thread);
                 //If the new packet contains an ACK then update instantly the packet: if the client is sending ACK, it is not sending data!
                 if(pk_rcv->type == ACK){
-                    update_packet(cliaddr_head, thread, pk_rcv);
+                    update_packet(cliaddr_head, thread, pk_rcv, time_temp);
+                    //SIGNAL THE THREAD in tid[thread] THAT AN ACK HAS BEEN RECEIVED SO THAT THE TIMER CAN BE RESTARTED OR STOPPED
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }else{
                     pthread_mutex_lock(&mux_free[thread]);                
                     //Update the new packet in the client node so that the thread can fetch new data
-                    update_packet(cliaddr_head, thread, pk_rcv);
+                    update_packet(cliaddr_head, thread, pk_rcv, time_temp);
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }
             }   

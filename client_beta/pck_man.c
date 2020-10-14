@@ -113,16 +113,16 @@ Packet unserialize_packet(char* buffer)
 
  	int n;
  	
-	print_packet(*pkt);
+	//print_packet(*pkt);
 
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
 
 	gettimeofday(&t->start, NULL);
-	printf("STARTING TIME COUNTER FOR SAMPLE RTT.\n");
+	//printf("STARTING TIME COUNTER FOR SAMPLE RTT.\n");
 	
 	// Set socket option for transmission timer
-	setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &t->interval, sizeof(t->interval));
-	printf("TRANSMISSION TIMER: %ld secs and %ld usecs.\n", t->interval.tv_sec, t->interval.tv_usec);
+	//setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &t->interval, sizeof(t->interval));
+	//printf("TRANSMISSION TIMER: %ld secs and %ld usecs.\n", t->interval.tv_sec, t->interval.tv_usec);
 	
  	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
@@ -152,19 +152,18 @@ Packet unserialize_packet(char* buffer)
  	
  	// Set socket option for recv timeout
  	setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &t->interval, sizeof(t->interval));
- 	printf("RCV TIMER: %ld secs and %ld usecs.\n", t->interval.tv_sec, t->interval.tv_usec);
+ 	//printf("RCV TIMER: %ld secs and %ld usecs.\n", t->interval.tv_sec, t->interval.tv_usec);
 
  	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
  		printf("\033[0;31mRECV TIMEOUT: max wait time reached.\033[0m\n");
  		return -1;
  	} else {
-		printf("ENDING TIME COUNTER FOR SAMPLE RTT.\n");
- 		gettimeofday(&t->end, NULL);
+		//printf("ENDING TIME COUNTER FOR SAMPLE RTT.\n");
  		*pkt = unserialize_packet(buffer);
-
+ 		gettimeofday(&t->end, NULL);
  		//AUDIT
- 		print_packet(*pkt);
- 		timeout_interval(t);
+ 		//print_packet(*pkt);
+ 		//timeout_interval(t);
 	} 
 	
 	return n;

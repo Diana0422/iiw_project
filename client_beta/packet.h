@@ -32,7 +32,7 @@ typedef struct timeout_info {
 	struct timeval interval;
 } Timeout;
 
-extern struct timeval timeout_interval(Timeout*);
+extern void timeout_interval(Timeout*);
 
 extern void arm_timer(Timeout*, timer_t, int);
 

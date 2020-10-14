@@ -16,7 +16,8 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
         }
     }
 
-    arm_timer(to, timerid);
+    //Start timer with the base value of 3000 msec
+    arm_timer(to, timerid, 1);
 
     //Wait for ACK
     printf("Server waiting for the ACK to initialize the connection.\n");
@@ -31,6 +32,9 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
         free(pk);
         return -1;
     }
+
+    //Fill the timeout info with the first computation
+    timeout_interval(to);
 
     disarm_timer(timerid);
 
@@ -56,7 +60,7 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout*
         }
     }
 
-    arm_timer(to, timerid);
+    arm_timer(to, timerid, 0);
 
     //Wait for ACK
     printf("Server waiting for the ACK to close the connection.\n");

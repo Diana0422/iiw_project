@@ -34,7 +34,7 @@ typedef struct node{
 	Packet* pack;			   //Packet received from the client
 	int server;				   //ID of the thread serving the client
 	struct node* next;		   //Pointer to the next client in the list 
-	Timeout to_info;                 // Timeout values structure
+	Timeout to_info;           // Timeout values structure
 }Client;
 
 extern void insert_client(Client**, struct sockaddr_in, Packet*, Timeout);
@@ -45,7 +45,7 @@ extern void remove_client(Client**, struct sockaddr_in);
 
 extern void dispatch_client(Client*, struct sockaddr_in, int*);
 
-extern void update_packet(Client*, int, Packet*);
+extern void update_packet(Client*, int, Packet*, Timeout);
 
 extern void print_list(Client*);
 

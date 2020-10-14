@@ -141,7 +141,7 @@ void dispatch_client(Client* h, struct sockaddr_in address, int* server){
  * @return Packet*
  */
 
-void update_packet(Client* h, int thread, Packet *pk){
+void update_packet(Client* h, int thread, Packet *pk, Timeout to){
     Client *prev;
     Client *curr;
 
@@ -153,6 +153,7 @@ void update_packet(Client* h, int thread, Packet *pk){
         curr = curr->next;
         if(thread == (prev->server)) {
             prev->pack = pk;
+            prev->to_info = to;
             break;
         }
     }

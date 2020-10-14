@@ -1,6 +1,6 @@
 #include "client.h"
 
-void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout * to, timer_t timerid)
+void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timeout* to, timer_t timerid)
 {
     pk = create_packet(0, 0, 0, NULL, SYN);
 
@@ -12,6 +12,7 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
         }
     }
 
+    //Start timer with base value of 3000 msec
     arm_timer(to, timerid, 1);
 
     //Wait for confirmation
@@ -27,6 +28,8 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
         failure("Connection failed.");
     }
 
+    //Compute the timeout interval for exchange: SYN, SYNACK
+    timeout_interval(to);
     disarm_timer(timerid);
    
     //Close the handshake
