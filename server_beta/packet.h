@@ -6,13 +6,10 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <sys/time.h>
-#include "server.h"
+
+#include "timeout.h"
 
 #define PAYLOAD 65467
-
-#define ALPHA 0.125 // for timeout
-#define BETA 0.25
 
 typedef enum type {DATA, ACK, SYN, SYNACK, FIN, FINACK} packet_type;
 
@@ -23,23 +20,6 @@ typedef struct message {
 	char data[PAYLOAD+1];
 	packet_type type;
 }Packet;
-
-
-typedef struct timeout_info {
-	double estimated_rtt;
-	double dev_rtt;
-	struct timeval start;
-	struct timeval end;
-	struct timeval interval;
-} Timeout;
-
-extern void timeout_interval(Timeout*);
-
-extern void arm_timer(Timeout*, timer_t, int);
-
-extern void disarm_timer(timer_t);
-
-extern void timeout_handler(int, siginfo_t*, void*);
 
 extern Packet* create_packet(unsigned long, unsigned long, size_t, char*, packet_type);
 

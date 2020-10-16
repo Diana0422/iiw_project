@@ -1,6 +1,4 @@
-#include "server.h"
-
-#define TIMER_BASE 3
+#include "timeout.h"
 
 /* TIMEOUT_INTERVAL
  * @brief returns a timeout interval to wait for ack to be received
@@ -96,7 +94,11 @@ void disarm_timer(timer_t id){
 
 void timeout_handler(int sig, siginfo_t* si, void* uc){
 
-	//Temporary behaviour
+	/*Temporary behaviour
 	printf("Timer expired. Terminating program.\n");
-	exit(0);
+	exit(0);*/
+	timer_t* tmptr;		//Pointer to the timer that caused a timeout
+	tmptr = si->si_value.sival_ptr;
+
+	check_for_retransmission(tmptr);
 }

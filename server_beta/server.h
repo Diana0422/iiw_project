@@ -13,16 +13,12 @@
 #include <sys/types.h>
 #include <netdb.h>
 #include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <errno.h>
 #include <dirent.h>
 #include <stdbool.h>
-#include <math.h>
-#include <signal.h>
+#include <stdlib.h>
 
-#include "packet.h"
+#include "windows.h"
 
 #define MAX_DGRAM_SIZE 65507
 #define THREAD_POOL	10
@@ -47,11 +43,9 @@ extern void dispatch_client(Client*, struct sockaddr_in, int*);
 
 extern void update_packet(Client*, int, Packet*, Timeout);
 
-extern void print_list(Client*);
+extern void incoming_ack(int, Packet*, Packet**, pthread_mutex_t*, Timeout, timer_t, Timeout*);
 
-extern int check_failure(const char*);
-	
-extern int failure(const char*);
+extern void print_list(Client*);
 
 extern unsigned long rand_lim(int);
 

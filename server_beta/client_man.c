@@ -158,3 +158,28 @@ void update_packet(Client* h, int thread, Packet *pk, Timeout to){
         }
     }
 }
+
+void incoming_ack(int thread, Packet *ack, Packet** list, pthread_mutex_t* lock, Timeout ack_to, timer_t timerid, Timeout* thread_to){
+    int i = 0;
+    
+    //Accedi a list[thread][] e scorri fino a trovare il pacchetto tale per cui seq_num+data_size = ack->ack_num - 1;
+    while(&list[thread][i] != NULL){
+        if((list[thread][i].seq_num + (int)list[thread][i].data_size) == (ack->ack_num - 1)){
+            break;
+        }
+        i++;
+    }
+
+    pthread_mutex_lock(lock);
+    //Se vi sono altri pacchetti più nuovi in list[thread][] restart timer, else stop timer
+    if(&list[thread][i+1] != NULL){
+        arm_timer(thread_to, timerid, 0);
+        refresh_window(list[thread], i);
+    }else{
+        //The ACK is related to the last packet sent: thread_to contains the start time and ack_to contains the end time, so a new RTT can be computed
+        thread_to->end = ack_to.end;
+        timeout_interval(thread_to);
+        disarm_timer(timerid);
+    }
+    pthread_mutex_unlock(lock);
+}

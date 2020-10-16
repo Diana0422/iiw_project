@@ -239,7 +239,6 @@ void order_buffer(Packet* pk, Packet* buff[], int pos){
  		  size: total size of the buffer
    @return free space in the buffer; -1 for buffer overflow
  */
-//USED ALSO IN FLOW CONTROL: retrieve the dimension of the free space in the buffer and send it to the server! (NEED TO ADD ANOTHER FIELD IN THE PACKET)
 
 int store_pck(Packet* pk, Packet* buff[], int size) {
 
