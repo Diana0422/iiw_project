@@ -29,14 +29,12 @@ extern Packet unserialize_packet(char*);
 
 extern int send_packet(Packet*, int, struct sockaddr*, socklen_t, Timeout*);
 
+extern int send_ack(int, struct sockaddr_in, socklen_t, unsigned long, unsigned long, Timeout*);
+
 extern int recv_packet(Packet*, int, struct sockaddr*, socklen_t, Timeout*);
 
 extern int handshake(Packet*, unsigned long*, int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
 extern int demolition(int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
-extern void print_packet(Packet);
-
-extern int check_buffer(Packet*, Packet**);
-
-extern int store_pck(Packet*, Packet**, int); 
+extern void print_packet(Packet); 

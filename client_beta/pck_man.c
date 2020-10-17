@@ -112,24 +112,40 @@ Packet unserialize_packet(char* buffer)
  	memset(buffer, 0, MAX_DGRAM_SIZE);
 
  	int n;
- 	
-	//print_packet(*pkt);
 
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
 
 	gettimeofday(&t->start, NULL);
-	//printf("STARTING TIME COUNTER FOR SAMPLE RTT.\n");
-	
-	// Set socket option for transmission timer
-	//setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &t->interval, sizeof(t->interval));
-	//printf("TRANSMISSION TIMER: %ld secs and %ld usecs.\n", t->interval.tv_sec, t->interval.tv_usec);
-	
+
  	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
  		return -1;
 	}
 
     return n;
+ }
+
+ /* SEND_ACK
+ * @brief Sends an ACK through socket;
+ * @param 
+ * @return 
+ */
+ 
+ int send_ack(int socket, struct sockaddr_in addr, socklen_t addrlen, unsigned long seq, unsigned long ack, Timeout* to)
+ {
+ 	Packet* pack;
+
+ 	printf("Sending ACK #%lu.\n", ack);
+    pack = create_packet(seq, ack, 0, NULL, ACK);
+    if (send_packet(pack, socket, (struct sockaddr*)&addr, addrlen, to) == -1) {
+        fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
+        free(pack);
+        return 1;
+    } 
+    printf("ACK #%lu correctly sent.\n", pack->ack_num);
+    free(pack); 
+
+    return 0;
  }
  
 
@@ -141,30 +157,46 @@ Packet unserialize_packet(char* buffer)
  
  int recv_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen, Timeout* t) 
  {
- 	char* buffer = (char*)malloc(MAX_DGRAM_SIZE);
- 	if(buffer == NULL){
- 		perror("Malloc failed");
- 		exit(EXIT_FAILURE);
- 	}
- 	memset(buffer, 0, MAX_DGRAM_SIZE);
-
+ 	char buffer[MAX_DGRAM_SIZE];
  	int n;
  	
- 	// Set socket option for recv timeout
- 	setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &t->interval, sizeof(t->interval));
- 	//printf("RCV TIMER: %ld secs and %ld usecs.\n", t->interval.tv_sec, t->interval.tv_usec);
+ 	memset(buffer, 0, MAX_DGRAM_SIZE);
 
- 	if ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
- 		printf("\033[0;31mRECV TIMEOUT: max wait time reached.\033[0m\n");
- 		return -1;
- 	} else {
-		//printf("ENDING TIME COUNTER FOR SAMPLE RTT.\n");
- 		*pkt = unserialize_packet(buffer);
- 		gettimeofday(&t->end, NULL);
- 		//AUDIT
- 		//print_packet(*pkt);
- 		//timeout_interval(t);
-	} 
+ 	while ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, &addrlen)) == -1) {
+ 		if(check_failure("Error: couldn't receive packet\n")){
+            continue;
+        }
+ 	} 
+
+	*pkt = unserialize_packet(buffer);
+ 	gettimeofday(&t->end, NULL);
+	
+	return n;
+ }
+
+ /* TRY_RECV_PACKET
+ * @brief Non blocking version of recv_packet
+ */
+ 
+ int try_recv_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen, Timeout* t) 
+ {
+ 	char buffer[MAX_DGRAM_SIZE];
+ 	int n;
+ 	
+ 	memset(buffer, 0, MAX_DGRAM_SIZE);
+
+ 	while ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, MSG_DONTWAIT, (struct sockaddr*)addr, &addrlen)) == -1) {
+ 		if((errno == EWOULDBLOCK) || (errno == EWOULDBLOCK)){
+            return -1;
+        }else{
+        	if(check_failure("Error: couldn't receive packet\n")){
+	            continue;
+	        }
+        }
+ 	} 
+
+	*pkt = unserialize_packet(buffer);
+ 	gettimeofday(&t->end, NULL);
 	
 	return n;
  }
@@ -210,93 +242,4 @@ void print_packet(Packet pk){
 	    count++;
 	}
 	printf("\n\n");*/
-}
-
-/* ORDER_BUFFER 
- * @brief store a packet in the correct position in the buffer
- * @param pk: packet to store;
- 		  buff: pointer to the receive buffer
- 		  pos: position in the buffer which contains a packet whose sequence number is bigger that the packet to store
- */
-
-void order_buffer(Packet* pk, Packet* buff[], int pos){
-	int i = 1;
-	Packet* temp;
-
-
-	//Slide the buffer from pos to the end to make room for the new packet
-	while(buff[pos+i] != NULL){
-		temp = buff[pos+1];
-		buff[pos+i] = buff[pos];
-		buff[pos] = temp;
-		i++;
-	}
-	buff[pos+i] = buff[pos];
-
-	//Fill the gap
-	buff[pos] = pk;
-}
-
-/* STORE_PCK 
- * @brief store a packet out of order in the receive buffer and check for buffer overflow.
- * @param pk: packet to store;
- 		  buff: pointer to the receive buffer
- 		  size: total size of the buffer
-   @return free space in the buffer; -1 for buffer overflow
- */
-//USED ALSO IN FLOW CONTROL: retrieve the dimension of the free space in the buffer and send it to the server! (NEED TO ADD ANOTHER FIELD IN THE PACKET)
-
-int store_pck(Packet* pk, Packet* buff[], int size) {
-
-	int free, i=0;
-
-	//If the buffer is empty, store the packet as first
-	if(buff[i] == NULL){
-		buff[i] = pk;
-		free = size-1;
-		return free;
-	}
-
-	//If the buffer is full, return an error
-	if(buff[size-1] != NULL){
-		return -1;
-	}
-
-	//In all other cases: store the packet in order
-	while(buff[i] != NULL){
-		if(pk->seq_num < buff[i]->seq_num){
-			order_buffer(pk, buff, i);
-			free = size-i-1;
-			return free;
-		}
-	}
-
-	buff[i] = pk;
-	free = size-i-1;
-	return free;
-}
-
-/* CHECK_BUFFER
- * @brief check if the receive buffer contains data in order with the last packet arrived and, if so, read the data and reorder the buffer
- * @param pk: packet to store;
- 		  buff: pointer to the receive buffer
- */
-
-int check_buffer(Packet* pk, Packet* buff[]){
-	int i = 0;
-	int res = 0;
-	unsigned long seq_num = (pk->seq_num + pk->data_size + 1);
-
-	if(buff[0] == NULL){
-		return res;
-	}
-
-	//Count the buffered packets that can be read
-	while(seq_num == buff[i]->seq_num){
-		res++;
-		seq_num += buff[i]->data_size+1;
-		i++;
-	}
-
-	return res;
 }

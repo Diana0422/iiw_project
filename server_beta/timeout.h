@@ -6,6 +6,7 @@
 #include <string.h>
 
 #define TIMER_BASE 3
+#define MINIMUM_RTO 1
 #define ALPHA	0.125
 #define BETA	0.25
 
@@ -29,4 +30,4 @@ extern int check_failure(const char*);
 	
 extern int failure(const char*);
 
-extern void check_for_retransmission(timer_t*);
+extern void retransmission(timer_t*);

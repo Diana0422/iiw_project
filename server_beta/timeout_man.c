@@ -6,37 +6,6 @@
  * @return double interval
  */
  
-/*
-struct timeval timeout_interval(Timeout* time) 
- {
- 	double sample_rtt, interval;
- 	long long usec;
- 	struct timeval final;
- 	
- 	
- 	printf("\033[0;35m** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
- 	printf("\033[0;35m** time->dev_rtt = %.4f\n", (double)time->dev_rtt);
- 	
- 	sample_rtt = (float)((time->end.tv_sec - time->start.tv_sec)*1000000L + (time->end.tv_usec - time->start.tv_usec))/1000; // sample rtt in msec
- 	
- 	printf("** sample rtt (msec): %f\n", sample_rtt);
- 	time->estimated_rtt = (1-ALPHA) * time->estimated_rtt + ALPHA * sample_rtt;
- 	time->dev_rtt = (1-BETA) * time->dev_rtt + BETA * fabs(sample_rtt - time->estimated_rtt);
-	
-	interval = (time->estimated_rtt + 4 * (time->dev_rtt));
-	printf("** timeout interval (msec): %f\n", interval);
-	
-	// convert interval double to timeval structure values
-	usec = interval * 1000000;
-	final.tv_sec = usec /1000000;
-	final.tv_usec = usec % 1000000;
-	printf("** final.tv_sec = %ld\n", final.tv_sec);
-	printf("** final.tv_usec = %ld\033[0m\n", final.tv_usec);
-	time->interval = final;
-	 
-	return final; // returns sender's timeout interval in micros 
- }
-*/
 void timeout_interval(Timeout* time) 
 {
  	double sample_rtt, interval;
@@ -70,15 +39,20 @@ void timeout_interval(Timeout* time)
 		its.it_value.tv_sec = TIMER_BASE;
 		its.it_value.tv_nsec = 0;
 	}else{
-		its.it_value.tv_sec = to->interval.tv_sec;
-		its.it_value.tv_nsec = to->interval.tv_usec*1000;
+		if((to->interval.tv_sec + (double)to->interval.tv_usec/1000000) < MINIMUM_RTO){
+			its.it_value.tv_sec = 1;
+			its.it_value.tv_nsec = 0;
+		}else{
+			its.it_value.tv_sec = to->interval.tv_sec;
+			its.it_value.tv_nsec = to->interval.tv_usec*1000;
+		}		
 	}
 
 	if(timer_settime(id, 0, &its, NULL) == -1){
 		failure("Timer updating failed.\n");
 	}
 
-	printf("Timer armed for %ld seconds and %ld nanoseconds\n", its.it_value.tv_sec, its.it_value.tv_nsec);
+	printf("Timer armed for %ld seconds and %ld nanoseconds\n\n", its.it_value.tv_sec, its.it_value.tv_nsec);
 }
 
 void disarm_timer(timer_t id){
@@ -89,16 +63,17 @@ void disarm_timer(timer_t id){
 		failure("Timer updating failed.\n");
 	}
 
-	printf("Timer disarmed.\n");
+	printf("Timer disarmed.\n\n");
 }
 
 void timeout_handler(int sig, siginfo_t* si, void* uc){
 
-	/*Temporary behaviour
-	printf("Timer expired. Terminating program.\n");
-	exit(0);*/
+	printf("TIMER EXPIRED\n");
+
 	timer_t* tmptr;		//Pointer to the timer that caused a timeout
 	tmptr = si->si_value.sival_ptr;
 
-	check_for_retransmission(tmptr);
+	retransmission(tmptr);
+
+	return;
 }

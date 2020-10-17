@@ -15,23 +15,13 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <errno.h>
 #include <dirent.h>
-#include <sys/time.h>
-#include <math.h>
-#include <signal.h>
 
-#include "packet.h"
+#include "windows.h"
 
 #define MAXLINE 1024
 #define MAX_DGRAM_SIZE 65507
-#define THREAD_POOL	10
-
-extern int check_failure(const char*);
-
-extern int failure(const char*);
 
 extern unsigned long rand_lim(int limit);
 

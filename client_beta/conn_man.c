@@ -30,6 +30,7 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
 
     //Compute the timeout interval for exchange: SYN, SYNACK
     timeout_interval(to);
+
     disarm_timer(timerid);
    
     //Close the handshake
@@ -37,6 +38,7 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
     *init_seq = rand_lim(1000);
 
     free(pk);
+    
     pk = create_packet(*init_seq, *init_ack, 0, NULL, ACK);    
 
     printf("Client initializes connection, sending the last ACK.\n");     
@@ -77,7 +79,7 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
 
     if(pk->type != FINACK){
         free(pk);
-        failure("Demolition failed.");
+        failure("Demolition failed.\n");
     }
 
     disarm_timer(timerid);

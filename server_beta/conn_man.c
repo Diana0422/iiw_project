@@ -33,7 +33,7 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
         return -1;
     }
 
-    //Fill the timeout info with the first computation
+    //Compute the timeout interval for exchange: SYNACK, ACK
     timeout_interval(to);
 
     disarm_timer(timerid);
@@ -77,8 +77,7 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout*
     }
 
     disarm_timer(timerid);
+    free(pk);
 
     return 0;
-    
-    free(pk);
 }

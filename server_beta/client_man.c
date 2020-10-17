@@ -9,7 +9,10 @@
 
 void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet, Timeout to){
     
+    Client *prev;
+    Client *curr;
     Client *new;
+
     if((new = (Client*)malloc(sizeof(Client))) == NULL){
     	perror("Malloc() failed");
     	exit(-1);
@@ -19,20 +22,10 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet, Time
     	perror("Malloc() failed.\n");
     	exit(-1);
     }
-    
-    //printf("Insert client.\n"); 
-    //print_packet(*packet);
-    
-    Client *prev;
-    Client *curr;
 
     new->addr = cli_addr;
-    new->pack = packet; 
-    
-    new->to_info = to;  // Copy timeout info in client data
-    //printf("Packet copied in client info.\n");
-    //print_packet(*pack);
-    
+    new->pack = packet;     
+    new->to_info = to; 
     new->server = -1;
     new->next = NULL;
 
@@ -159,27 +152,41 @@ void update_packet(Client* h, int thread, Packet *pk, Timeout to){
     }
 }
 
-void incoming_ack(int thread, Packet *ack, Packet** list, pthread_mutex_t* lock, Timeout ack_to, timer_t timerid, Timeout* thread_to){
+/* incoming_ack 
+ * @brief react to an ack reception: 
+                find the packet that the ack acknowledges;
+                check if there are still in flight packets and, if so, restart the timer and refresh the window;
+                if there are no more packets in flight, match the ack with the packet stop the timer and recompute the timeout interval
+ * @param thread: id of the thread that has received the ack;
+          ack: ack packet;
+          list: transmission windows;
+          lock: transmission window mutex;
+          free_space: usable window size
+          ack_to: timeout structure in the ack packet;
+          timerid: id of the timer related to the thread;
+          thread_to: timeout structure of the thread:
+ */
+
+void incoming_ack(int thread, Packet *ack, Packet* list[][INIT_WND_SIZE], short* free_space, Timeout ack_to, timer_t timerid, Timeout* thread_to){
     int i = 0;
-    
-    //Accedi a list[thread][] e scorri fino a trovare il pacchetto tale per cui seq_num+data_size = ack->ack_num - 1;
-    while(&list[thread][i] != NULL){
-        if((list[thread][i].seq_num + (int)list[thread][i].data_size) == (ack->ack_num - 1)){
+
+    for(i=0; i<(INIT_WND_SIZE - *free_space); i++){
+        if(list[thread][i]->seq_num == ack->ack_num){
+            printf("Received ACK related to packet #%lu.\n", list[thread][i]->seq_num);
             break;
         }
-        i++;
     }
 
-    pthread_mutex_lock(lock);
-    //Se vi sono altri pacchetti più nuovi in list[thread][] restart timer, else stop timer
-    if(&list[thread][i+1] != NULL){
-        arm_timer(thread_to, timerid, 0);
-        refresh_window(list[thread], i);
+    if(i == 0){
+        //print_wnd(list[thread]);
     }else{
-        //The ACK is related to the last packet sent: thread_to contains the start time and ack_to contains the end time, so a new RTT can be computed
-        thread_to->end = ack_to.end;
-        timeout_interval(thread_to);
         disarm_timer(timerid);
+        refresh_window(list, thread, i, free_space);
+        if(list[thread][0] != NULL){           
+            arm_timer(thread_to, timerid, 0);
+        }else{ 
+            thread_to->end = ack_to.end;
+            timeout_interval(thread_to);     
+        }
     }
-    pthread_mutex_unlock(lock);
 }

@@ -16,7 +16,6 @@
 #include <errno.h>
 #include <dirent.h>
 #include <stdbool.h>
-#include <stdlib.h>
 
 #include "windows.h"
 
@@ -43,7 +42,7 @@ extern void dispatch_client(Client*, struct sockaddr_in, int*);
 
 extern void update_packet(Client*, int, Packet*, Timeout);
 
-extern void incoming_ack(int, Packet*, Packet**, pthread_mutex_t*, Timeout, timer_t, Timeout*);
+extern void incoming_ack(int, Packet*, Packet*(*)[INIT_WND_SIZE], short*, Timeout, timer_t, Timeout*);
 
 extern void print_list(Client*);
 
