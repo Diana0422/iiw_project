@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define TIMER_BASE 3
 #define MINIMUM_RTO 1
@@ -30,4 +31,4 @@ extern int check_failure(const char*);
 	
 extern int failure(const char*);
 
-extern void retransmission(timer_t*);
+extern void retransmission(timer_t*, bool);

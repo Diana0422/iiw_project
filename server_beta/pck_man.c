@@ -114,8 +114,12 @@ Packet unserialize_packet(char* buffer)
 
 	gettimeofday(&t->start, NULL);
 
- 	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
- 		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
+ 	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, MSG_DONTWAIT, (struct sockaddr*)addr, addrlen)) == -1) {
+		if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+			return -1;
+		}
+
+		fprintf(stderr, "\033[0;31mCouldn't send packet.\033[0m\n");
  		return -1;
 	}
     return n;

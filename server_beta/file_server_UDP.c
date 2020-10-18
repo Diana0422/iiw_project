@@ -33,18 +33,25 @@ Timeout to[THREAD_POOL];      //Timeout structures related to each thread
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void retransmission(timer_t* ptr){
+void retransmission(timer_t* ptr, bool fast_rtx){
     int thread = 0;
     Packet* pk;
     Client* client_info = cliaddr_head;
     struct sockaddr_in address;
     socklen_t addrlen;
 
-    //Retrieve the thread for which the timer has expired
-    for(int i=0; i<THREAD_POOL; i++){
-        if(timerid+i == ptr){
-            thread = i;
-            break;
+    printf("\n\nCHECK CLIENT INFO:");
+    printf("** client ack counter: %d\n", cliaddr_head->ack_counter);
+    printf("** client last ack received: %ld\n\033[0m\n", cliaddr_head->last_ack_received);
+
+    printf("qui 1\n");
+    if (fast_rtx == false) {    //Retransmission due to timeout
+        //Retrieve the thread for which the timer has expired
+        for(int i=0; i<THREAD_POOL; i++){
+            if(timerid+i == ptr){
+                thread = i;
+                break;
+            }
         }
     }
 
@@ -57,15 +64,17 @@ void retransmission(timer_t* ptr){
         client_info = client_info->next;
     }
     addrlen = sizeof(address);
-
+    printf("qui 2\n");
 
     //Fetch the packet to retransmit
     pk = wnd[thread][0];
 
-    pthread_mutex_lock(&wnd_lock[thread]);
+    printf("qui 3\n");
+
+    pthread_mutex_trylock(&wnd_lock[thread]);
     printf("Retransmitting packet #%lu\n", pk->seq_num);
     if (send_packet(pk, listensd, (struct sockaddr*)&address, addrlen, &to[thread]) == -1) {
-        fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
+        fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
     }
     printf("Packet #%lu correctly retransmitted.\n\n", pk->seq_num);
@@ -222,6 +231,7 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
     Packet *pk;
     /**END**/
+    printf("THREAD WORKING: thread #%d\n", thread);
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1;    
     usable_wnd[thread] = INIT_WND_SIZE;   
@@ -446,6 +456,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
  MAIN & THREAD HANDLER
  ----------------------------------------------------------------------------------------------------------------------------------------------
  */
+
     
 void* thread_service(void* arg){
 
@@ -456,10 +467,9 @@ void* thread_service(void* arg){
     oper.sem_flg = 0;
 
 	Client* recipient;          //Variable filled by the client's informations, everytime a client is acquired
-
 	char* cmd, *filename;       //Used to distinguish requests and files
-
-	int id = *((int*)arg);      //Thread ID: used to assign a client to a working thread  
+ 
+	int id = *((int*)arg);      //Thread ID: used to assign a client to a working thread
     /**END**/
     
 	while(1){
@@ -607,10 +617,12 @@ int main(void)
         fprintf(stderr, "Error: couldn't malloc indexes.\n");
         exit(EXIT_FAILURE);
     }
+    
 
     //Create thread pool
     for(i=0; i<THREAD_POOL; i++){
-        indexes[i] = i;       
+        indexes[i] = i;     
+
         if(pthread_create(&tid[i], 0, (void*)thread_service, (void*)(&indexes[i]))){
             fprintf(stderr, "pthread_create() failed");
             close(listensd);
@@ -696,10 +708,10 @@ int main(void)
                 //Find out who's serving the client: to signal a new packet to the thread
                 dispatch_client(cliaddr_head, cliaddr, &thread);
                 if(pk_rcv->type == ACK){
-    
+                    
                     printf("Thread %d received ACK #%lu.\n", thread, pk_rcv->ack_num);
                     pthread_mutex_lock(&wnd_lock[thread]);
-                    incoming_ack(thread, pk_rcv, wnd, &usable_wnd[thread], time_temp, timerid[thread], &to[thread]);
+                    incoming_ack(thread, cliaddr_head, pk_rcv, wnd, &usable_wnd[thread], time_temp, timerid[thread], &to[thread]);
                     pthread_mutex_unlock(&wnd_lock[thread]);
 
                 }else if(pk_rcv->type == FIN){
