@@ -10,7 +10,7 @@ extern void refresh_window(Packet*(*)[INIT_WND_SIZE], int, int, short*);
 
 extern void order_rwnd(Packet*, Packet** buff, int);
 
-extern int store_rwnd(Packet*, Packet**, int);
+extern void store_rwnd(Packet*, Packet**, int);
 
 extern void print_wnd(Packet**);
 

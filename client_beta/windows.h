@@ -9,7 +9,7 @@ extern void refresh_window(Packet**, int, short*);
 
 extern void order_rwnd(Packet*, Packet** buff, int);
 
-extern int store_rwnd(Packet*, Packet**, int);
+extern void store_rwnd(Packet*, Packet**, int);
 
 extern void print_wnd(Packet**);
 

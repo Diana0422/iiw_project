@@ -11,23 +11,23 @@ void timeout_interval(Timeout* time)
  	double sample_rtt, interval;
  	long long usec;
  	
- 	printf("\033[0;35m** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
- 	printf("\033[0;35m** time->dev_rtt = %.4f\n", (double)time->dev_rtt);
+ 	//printf("\033[0;35m** time->estimated_rtt = %.4f\n", (double)time->estimated_rtt);
+ 	//printf("\033[0;35m** time->dev_rtt = %.4f\n", (double)time->dev_rtt);
  	
  	sample_rtt = (double)((time->end.tv_sec - time->start.tv_sec)*1000000L + (time->end.tv_usec - time->start.tv_usec))/1000; // sample rtt in msec
 
- 	printf("** sample rtt (msec): %f\n", sample_rtt);
+ 	//printf("** sample rtt (msec): %f\n", sample_rtt);
  	time->estimated_rtt = (1-ALPHA) * time->estimated_rtt + ALPHA * sample_rtt;
  	time->dev_rtt = (1-BETA) * time->dev_rtt + BETA * fabs(sample_rtt - time->estimated_rtt);
 	
 	interval = (time->estimated_rtt + 4 * (time->dev_rtt));
-	printf("** timeout interval (msec): %f\n", interval);
+	//printf("** timeout interval (msec): %f\n", interval);
 	
 	//convert interval double to timeval structure values
 	usec = interval * 1000;	
 	time->interval.tv_sec = usec /1000000;
 	time->interval.tv_usec = usec % 1000000;	
-	printf("** interval.tv_sec = %ld\n", time->interval.tv_sec);
+	//printf("** interval.tv_sec = %ld\n", time->interval.tv_sec);
 	printf("** interval.tv_usec = %ld\033[0m\n", time->interval.tv_usec);
 }
 
@@ -52,7 +52,7 @@ void timeout_interval(Timeout* time)
 		failure("Timer updating failed.\n");
 	}
 
-	printf("Timer armed for %ld seconds and %ld nanoseconds\n\n", its.it_value.tv_sec, its.it_value.tv_nsec);
+	//printf("Timer armed for %ld seconds and %ld nanoseconds\n\n", its.it_value.tv_sec, its.it_value.tv_nsec);
 }
 
 void disarm_timer(timer_t id){
@@ -63,12 +63,12 @@ void disarm_timer(timer_t id){
 		failure("Timer updating failed.\n");
 	}
 
-	printf("Timer disarmed.\n\n");
+	//printf("Timer disarmed.\n\n");
 }
 
 void timeout_handler(int sig, siginfo_t* si, void* uc){
 
-	printf("TIMER EXPIRED\n");
+	//printf("TIMER EXPIRED\n");
 
 	timer_t* tmptr;		//Pointer to the timer that caused a timeout
 	tmptr = si->si_value.sival_ptr;

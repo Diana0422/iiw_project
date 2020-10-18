@@ -1,5 +1,7 @@
 #include "client.h"
 
+//DEBUG
+
 void print_wnd(Packet** list){
 	int i;
 	printf("\nTransmission window: {");
@@ -64,18 +66,18 @@ void refresh_window(Packet** list, int index, short* free_space){
 
 	if(index == INIT_WND_SIZE){
 		memset(list, 0, INIT_WND_SIZE*sizeof(Packet*));
-	}
+	}else{
+		while((index+i < INIT_WND_SIZE) && (list[index+i] != NULL)){
+			list[i] = list[index+i];
+			memset(&list[index+i], 0, sizeof(Packet*));
+			count++;
+			i++;
+		}
 
-	while((index+i < INIT_WND_SIZE) && (list[index+i] != NULL)){
-		list[i] = list[index+i];
-		memset(&list[index+i], 0, sizeof(Packet*));
-		count++;
-		i++;
-	}
-
-	while((i < INIT_WND_SIZE) && (list[i] != NULL)){
-		memset(&list[i], 0, sizeof(Packet*));
-		i++;
+		while((i < INIT_WND_SIZE) && (list[i] != NULL)){
+			memset(&list[i], 0, sizeof(Packet*));
+			i++;
+		}
 	}
 
 	*free_space = INIT_WND_SIZE - count;
@@ -107,7 +109,7 @@ void order_rwnd(Packet* pk, Packet* buff[], int pos){
 	//Fill the gap
 	buff[pos] = pk;
 
-	print_rwnd(buff);
+	//print_rwnd(buff);
 }
 
 /* STORE_RWND 
@@ -115,41 +117,26 @@ void order_rwnd(Packet* pk, Packet* buff[], int pos){
  * @param pk: packet to store;
  		  buff: pointer to the receive buffer
  		  size: total size of the buffer
-   @return free space in the buffer; -1 for buffer overflow
  */
 
-int store_rwnd(Packet* pk, Packet* buff[], int size) {
+void store_rwnd(Packet* pk, Packet* buff[], int size) {
 
-	int free, i=0;
+	int i=0;
 
-	//If the buffer is empty, store the packet as first
-	if(buff[i] == NULL){
+	if(buff[i] == NULL){ 	//If the buffer is empty, store the packet as first
 		buff[i] = pk;
-		print_rwnd(buff);
-		free = size-1;
-		return free;
-	}
-
-	//If the buffer is full, return an error
-	if(buff[size-1] != NULL){
-		printf("Buffer full\n");
-		return -1;
-	}
-
-	//In all other cases: store the packet in order
-	while(buff[i] != NULL){
-		if(pk->seq_num < buff[i]->seq_num){
-			order_rwnd(pk, buff, i);
-			free = size-i-1;
-			return free;
+		
+	}else if(buff[size-1] != NULL){		//If the buffer is full don't do anything
+		//printf("Buffer overflow\n");
+	}else{									//In all other cases: store the packet in order
+		while(buff[i] != NULL){
+			if(pk->seq_num < buff[i]->seq_num){
+				order_rwnd(pk, buff, i);
+			}
+			i++;
 		}
-		i++;
+		buff[i] = pk;
 	}
 
-	buff[i] = pk;
-
-	print_rwnd(buff);
-
-	free = size-i-1;
-	return free;
+	//print_rwnd(buff);
 }

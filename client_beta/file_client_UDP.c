@@ -3,6 +3,7 @@
 //  
 //
 //  Created by Diana Pasquali on 20/07/2020.
+
 #define pragma once
 #define _GNU_SOURCE
 
@@ -11,19 +12,13 @@
 #define SERV_PORT 5193
 #define DIR_PATH files
 
-Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};
-Packet* wnd[INIT_WND_SIZE] = {NULL};
+Packet* wnd_base[MAX_CONC_REQ];     //Packet at the base of the transmission window (global for retransmission)
 
-unsigned long rcv_next; //The sequence number of the next byte of data that is expected from the server
-unsigned long send_next; //The sequence number of the next byte of data to be sent to the server
-short usable_wnd; //The amount of packets that can be sent 
-unsigned long last_ack_rcvd; // The sequence number of the last ack received (to fast retransmit)
-int acks_count = 0; // counter for repeated acks (to fast retransmit packet).
-
-Timeout time_temp;
-timer_t timerid;
+Timeout time_temp[MAX_CONC_REQ];
+timer_t timerid[MAX_CONC_REQ];
 
 int sockfd;
+socklen_t addrlen = sizeof(struct sockaddr_in);
 struct sockaddr_in servaddr;
 
 /*
@@ -32,45 +27,33 @@ struct sockaddr_in servaddr;
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void retransmission(){
+void retransmission(timer_t* ptr, bool fast_rtx){
 
+    int thread = 0;
     Packet* pk;
-    pk = (Packet*)malloc(sizeof(Packet));
-    if (pk == NULL) {
-        failure("Error: couldn't malloc packet.");
-    }  
 
-    int i = 0;
-    socklen_t addrlen = sizeof(servaddr);
-
-    //Check if ACKs have been received    
-    while(try_recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) != -1){
-        if((pk->type == ACK) && (pk->ack_num > wnd[i]->seq_num)){
-            printf("Received ACK #%lu.\n", pk->ack_num);
-            i++;
-
-            if((i+1 < INIT_WND_SIZE) && (wnd[i+1] != NULL)){
-                arm_timer(&time_temp, timerid, 0);
-            }else{   
+    if (fast_rtx == false) {    //Retransmission due to timeout
+        //Retrieve the thread for which the timer has expired
+        for(int i=0; i<MAX_CONC_REQ; i++){
+            if(timerid+i == ptr){
+                thread = i;
                 break;
             }
         }
     }
+   
+    //Fetch the packet to retransmit
+    pk = wnd_base[thread];
 
-    if(i == 0){
-        pk = wnd[0];
-        printf("Retransmitting packet #%lu\n", pk->seq_num);
-        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) == -1) {
-            fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
-            return;
-        }
-        printf("Packet #%lu correctly retransmitted.\n\n", pk->seq_num);
-
-        arm_timer(&time_temp, timerid, 0);
-    }else{
-        refresh_window(wnd, i, &usable_wnd);
+    //printf("Retransmitting packet #%lu\n", pk->seq_num);
+    if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
+        fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
+        return;
     }
-    
+    printf("Packet #%lu correctly retransmitted.\n\n", pk->seq_num);
+
+    arm_timer(&time_temp[thread], timerid[thread], 0);
+
     return;
 }
 
@@ -80,12 +63,12 @@ void retransmission(){
  ------------------------------------------------------------------------------------------------------------------------------------------------
  */
  
-int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
+int request_list(int id, unsigned long send_next, unsigned long rcv_next)
 {
     /**VARIABLE DEFINITIONS**/
-    socklen_t addrlen = sizeof(addr);
     int i, j;
     Packet *pk;
+    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};
     /**END**/
 
     //Prepare to receive packets
@@ -97,11 +80,11 @@ int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
     }   
  
     //Retreive packets
-    while (recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) != -1) {
+    while (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1) {
 
         if(pk->seq_num == rcv_next){
     	//Packet received in order: gets read by the client
-    	printf("Received packet #%lu in order.\n", pk->seq_num);
+    	//printf("Received packet #%lu in order.\n", pk->seq_num);
 
             //Check if transmission has ended.
             if(pk->data_size == 0){
@@ -112,7 +95,7 @@ int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
                 }
 
                 //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
+                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
 
@@ -143,7 +126,7 @@ int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
                 }             
 
                 //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
+                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
 
@@ -152,34 +135,29 @@ int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
 
         } else if(pk->seq_num > rcv_next){
             //Packet received out of order: store packet in the receive buffer
-            printf("Received packet #%lu out of order.\n", pk->seq_num);
-         	if(store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE)){
+            //printf("Received packet #%lu out of order.\n", pk->seq_num);
+         	store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
          		
-                //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
-                    return 1;
-                }
-
-                memset(pk->data, 0, PAYLOAD);
-
-            }else{
-                printf("Buffer Overflow. Discarding the packet\n");
-                //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
-                    return 1;
-                }
-
-                memset(pk->data, 0, PAYLOAD);
-            }      	
-        } else{
-            //Received duplicated packet
-            printf("Received duplicated packet #%lu.\n", pk->seq_num);
             //Send ACK for the last correctly received packet
-            if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
+            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
+  	
+        } else{
+            //Received duplicated packet
+            //printf("Received duplicated packet #%lu.\n", pk->seq_num);
 
-            memset(pk->data, 0, PAYLOAD);
+            //Send ACK for the last correctly received packet
+            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+                return 1;
+            }
+        }
+
+        //Change the pk address or the receive buffer will have all identical packets: waste of memory -> looking for alternatives
+        pk = (Packet*)malloc(sizeof(Packet));
+        if (pk == NULL) {
+            fprintf(stderr, "Error: couldn't malloc packet.\n");
+            return 0;
         }
     }
 
@@ -194,14 +172,14 @@ int request_list(int sd, struct sockaddr_in addr, Timeout* time_out)
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_out)
+int request_get(int id, char* filename, unsigned long send_next, unsigned long rcv_next)
 {
     /**VARIABLE DEFINITIONS**/
     FILE *fp;
-    socklen_t addrlen = sizeof(addr);
     ssize_t write_size = 0;
-    int n, i, j;
+    int i, j;
     Packet *pk;
+    Packet *rcv_buffer[MAX_RVWD_SIZE] = {NULL};
     /**END**/
 
     //Initialize packet
@@ -216,14 +194,10 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
     if (fp == NULL) {
         fprintf(stderr, "Error: cannot open file %s.\n", filename);
         return 1;
-    } else {
-        printf("File %s successfully opened!\n", filename);
-    }   
+    }
     
     /* Receive data in chunks of 65000 bytes */
-    while((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) != -1)){
-        //DEBUG:
-        print_packet(*pk);
+    while(recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
         //Check if the received packet is in order with the stream of bytes
         if(pk->seq_num == rcv_next){
             //Check if transmission has ended.
@@ -231,16 +205,17 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
                 //Data transmission completed: check if the receive buffer is empty
                 if(rcv_buffer[0] == NULL){
                     printf("Transmission has completed successfully.\n");
+                    fclose(fp);
                     return 0;
                 }
 
                 //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
+                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
 
             }else{
-                printf("Received packet #%lu in order.\n", pk->seq_num);
+                //printf("Received packet #%lu in order.\n", pk->seq_num);
                 //Convert byte array to file
                 write_size += fwrite(pk->data, 1, pk->data_size, fp);
                 rcv_next += (unsigned long)pk->data_size;
@@ -267,38 +242,29 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
                         j++;
                     }
                 }   
-
-                print_rwnd(rcv_buffer);     
-
+     
                 //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
+                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
             }
             
         }else if(pk->seq_num > rcv_next){
             //Packet received out of order: store packet in the receive buffer
-            printf("Received packet #%lu out of order.\n", pk->seq_num);
-            if(store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE)){
+            //printf("Received packet #%lu out of order.\n", pk->seq_num);
+            store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
                 
-                //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
-                    return 1;
-                }
-
-            }else{
-                printf("Buffer Overflow. Discarding the packet\n");
-                //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
-                    return 1;
-                }
-            } 
-
-        } else {
-            //Received duplicated packet
-            printf("Received duplicated packet #%lu.\n", pk->seq_num);
             //Send ACK for the last correctly received packet
-            if(send_ack(sd, addr, addrlen, send_next, rcv_next, time_out)){
+            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+                return 1;
+            }
+    
+        } else{
+            //Received duplicated packet
+            //printf("Received duplicated packet #%lu.\n", pk->seq_num);
+
+            //Send ACK for the last correctly received packet
+            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
         }
@@ -311,14 +277,6 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
         }
     }
 
-    if (n == -1){
-	    perror("Error: couldn't receive packet from socket.\n");
-	    free(pk);
-	    fclose(fp);
-	    return 1;
-	}
-
-    fclose(fp);
     return 0;
 }
 
@@ -328,25 +286,27 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_out, timer_t timerid)
+int request_put(int id, char *filename, unsigned long send_next, unsigned long rcv_next, short usable_wnd)
 {
     /**VARIABLE DEFINITIONS**/
     FILE *fp;
-    socklen_t addrlen = sizeof(addr);
     ssize_t read_size;
     char* sendline;
     Packet *pk, *pack;
     int i;
+    Packet* wnd[INIT_WND_SIZE] = {NULL};
+    unsigned long last_ack_rcvd;        //The sequence number of the last ack received (to fast retransmit)
+    int acks_count = 0;                 //Counter for repeated acks (to fast retransmit packet).
     /**END**/
     
+    wnd_base[id] = wnd[0];
+
     //Open the file
     fp = fopen(filename, "rb");
     if (fp == NULL) {
         fprintf(stderr, "Error: cannot open file %s.\n", filename);
         return 1;
-    } else {
-        printf("File %s successfully opened!\n", filename);
-    }   
+    }
     
     //Allocate space
     if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
@@ -366,43 +326,41 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
         //Read from the file and send data   
         read_size = fread(sendline, 1, PAYLOAD, fp);
 
-        pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);  
-        printf("Sending packet #%lu.\n", send_next);          
-        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
+        pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);    
+        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
             free(sendline);
             free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
-        printf("Packet #%lu correctly sent\n", send_next);
         send_next += (unsigned long)pk->data_size;
 
         update_window(pk, wnd, &usable_wnd);
 
         //If it's the the only packet in the window, start timer
         if(usable_wnd == INIT_WND_SIZE-1){
-            arm_timer(time_out, timerid, 0);
+            arm_timer(&time_temp[id], timerid[id], 0);
         }
 
         while(usable_wnd == 0){
-            //FULL WINDOW: wait for ACK until either it is received or the timer expires
-            
+            //FULL WINDOW: wait for ACK until either it is received or the timer expires           
             i = 0;  
-            while(try_recv_packet(pack, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) != -1){
+            while(try_recv_packet(pack, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
 
                 if(pack->type == ACK){
                     printf("Received ACK #%lu.\n", pack->ack_num);
                     if (last_ack_rcvd != pack->ack_num) {
                         // New ack received
-                        printf("\033[1;32mNew ack received.\033[0m\n"); //debug
+                        //printf("\033[1;32mNew ack received.\033[0m\n"); //debug
                         last_ack_rcvd = pack->ack_num; 
                     } else {
                         // Increase acks counter
                         acks_count++;
                         if (acks_count == 3) {
                             // Fast retransmission
-                            disarm_timer(timerid);
-                            retransmission();
+                            printf("FAST RETRANSMISSION\n");
+                            disarm_timer(timerid[id]);
+                            retransmission(&timerid[id], true);
                         }
                     }
                     while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){
@@ -413,10 +371,10 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
 
             if(i != 0){
                 if((i+1 < INIT_WND_SIZE+1) && (wnd[i+1] != NULL)){
-                    arm_timer(&time_temp, timerid, 0);
+                    arm_timer(&time_temp[id], timerid[id], 0);
                 }else{ 
-                    disarm_timer(timerid);
-                    timeout_interval(&time_temp);  
+                    disarm_timer(timerid[id]);
+                    timeout_interval(&time_temp[id]);  
                 }
 
                 refresh_window(wnd, i, &usable_wnd);
@@ -428,12 +386,9 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
     }
 
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
-    printf("Sending packet #%lu.\n", send_next);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) == -1) {
+    if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return 1;
-    } else {
-        printf("last packet.\n");
     }
 
     update_window(pk, wnd, &usable_wnd);
@@ -441,23 +396,25 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
     //Wait for ACK until every packet is correctly received
     while(usable_wnd != INIT_WND_SIZE-1){
         i = 0;  
-        while(try_recv_packet(pack, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) != -1){
+        while(try_recv_packet(pack, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
 
             if(pack->type == ACK){
                 printf("Received ACK #%lu.\n", pack->ack_num);
                 if (last_ack_rcvd != pack->ack_num) {
                         // New ack received
-                        printf("\033[1;32mNew ack received.\033[0m\n"); //debug
+                       //printf("\033[1;32mNew ack received.\033[0m\n"); //debug
                         last_ack_rcvd = pack->ack_num; 
                     } else {
                         // Increase acks counter
                         acks_count++;
                         if (acks_count == 3) {
                             // Fast retransmission
-                            disarm_timer(timerid);
-                            retransmission();
+                            printf("FAST RETRANSMISSION\n");
+                            disarm_timer(timerid[id]);
+                            retransmission(&timerid[id], true);
                         }
                     }
+
                 while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){
                     i++;
                 }
@@ -466,12 +423,11 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
 
         if(i != 0){
             if((i+1 < INIT_WND_SIZE+1) && (wnd[i+1] != NULL)){
-                arm_timer(&time_temp, timerid, 0);
+                arm_timer(&time_temp[id], timerid[id], 0);
             }else{ 
-                disarm_timer(timerid);
-                timeout_interval(&time_temp);  
+                disarm_timer(timerid[id]);
+                timeout_interval(&time_temp[id]);  
             }
-
             refresh_window(wnd, i, &usable_wnd);
         }
     }
@@ -485,9 +441,111 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
 
 /*
  ------------------------------------------------------------------------------------------------------------------------------------------------
- MAIN
+ MAIN & THREAD HANDLER
  -------------------------------------------------------------------------------------------------------------------------------------------------
  */
+
+void* thread_function(void* arg){
+
+    /**VARIABLE DEFINITIONS**/
+    char cmd[MAXLINE]; 
+    char filename[MAXLINE];
+    char request[MAXLINE]; 
+    char *tok; 
+
+    unsigned long send_next;
+    unsigned long rcv_next;
+
+    int res, thread;
+    Packet *pk = NULL;
+
+    short usable_wnd = INIT_WND_SIZE; //The amount of packets that can be sent 
+    /**END**/
+
+    strcpy(cmd, (char*)arg);
+
+    //Retrieve ID       
+    tok = strtok(cmd, " \n");
+    sscanf(tok, "%d", &thread);
+
+    /** 3-WAY HANDSHAKE **/
+    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen, &time_temp[thread], timerid[thread]);
+    
+    //Retrieve request
+    tok = strtok(NULL, " \n");
+    strcpy(request, tok);
+
+    tok = strtok(NULL, "\n");
+    if(tok != NULL){
+        strcpy(filename, tok);
+    }else{
+        filename[0] = '\0';
+    }
+
+    strcpy(cmd, request);
+    strcat(cmd, " ");
+    strcat(cmd, filename);
+
+    //Send request
+    pk = create_packet(send_next, rcv_next, strlen(cmd), cmd, DATA);    
+    if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
+        fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
+        free(pk);
+        pthread_exit((void*)-1);
+    }
+    send_next += (unsigned long)pk->data_size + 1;
+
+    wnd_base[thread] = pk;
+    usable_wnd--;
+
+    arm_timer(&time_temp[thread], timerid[thread], 0);
+
+    //Wait for the ACK related to the request
+    while(1){
+        if(recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
+            failure("Error: couldn't receive ack.");
+        } else {            
+            if ((pk->type == ACK) && (pk->ack_num == send_next)) {
+                disarm_timer(timerid[thread]);
+                wnd_base[thread] = NULL;
+                usable_wnd++;
+                break;                  
+            }
+        }
+    }        
+    free(pk);
+
+    //Compute the timeout interval for exchange: REQUEST, ACK
+    timeout_interval(&time_temp[thread]);
+
+    if (strcmp(request, "list") == 0) {
+        //Execute LIST
+        res = request_list(thread, send_next, rcv_next);
+    
+    } else if (strcmp(request, "get") == 0) {
+        //Execute GET
+        res = request_get(thread, filename, send_next, rcv_next);
+
+    } else if (strcmp(request, "put") == 0) {
+        //Execute PUT
+        res = request_put(thread, filename, send_next, rcv_next, usable_wnd);
+
+    } else {
+        failure("\033[0;31mError: couldn't retrieve input.\033[0m\n");
+    }
+
+    if (res == 1) {
+        failure("\033[0;31mInput function error.\033[0m\n");
+        pthread_exit((void*)-1);
+
+    } else { 
+
+        demolition(send_next, rcv_next, sockfd, &servaddr, addrlen, &time_temp[thread], timerid[thread]);
+        printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
+
+        pthread_exit(0);      
+    }
+}
 
 int main(int argc, char* argv[])
 {   
@@ -496,20 +554,17 @@ int main(int argc, char* argv[])
         failure("Utilization: ./client <server IP>");
     }
 
-    /**VARIABLE DEFINITIONS**/   
-    int res = 0;
-    socklen_t addrlen = sizeof(struct sockaddr_in);
-
+    /**VARIABLE DEFINITIONS**/      
     char buff[MAXLINE];
-    char *tok, *filename;
-
-    Packet* pk = NULL;
+    char filename[MAXLINE];
     
     struct sigevent sev;
     struct sigaction sa;
-    /**END**/
 
-    memset(&time_temp, 0, sizeof(time_temp));
+    pthread_t tid[MAX_CONC_REQ] = {0};
+
+    int oper, i, num_threads = 0;
+    /**END**/
 
     //Create socket
     while ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -519,7 +574,7 @@ int main(int argc, char* argv[])
     }
     
     //Initialize address values
-    memset((void*)&servaddr, 0, addrlen);    
+    memset((void*)&servaddr, 0, sizeof(struct sockaddr_in));    
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(SERV_PORT);
     if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0) {
@@ -533,117 +588,109 @@ int main(int argc, char* argv[])
         failure("Sigaction failed.\n");
     }
 
-    //Create timer
+    memset(&time_temp, 0, sizeof(time_temp));
+
+    //Create timers
     sev.sigev_notify = SIGEV_SIGNAL;
     sev.sigev_signo = SIGRTMIN;
-    sev.sigev_value.sival_ptr = &timerid;
-    if(timer_create(CLOCK_REALTIME, &sev, &timerid) == -1){
-        failure("Timer creation failed.\n");
+    for(i=0; i<MAX_CONC_REQ; i++){
+        sev.sigev_value.sival_ptr = &timerid[i]; //Allows handler to get the ID of the timer that causes a timeout
+        if(timer_create(CLOCK_REALTIME, &sev, &timerid[i]) == -1){
+            failure("Timer creation failed.\n");
+        }
     }
 
-    /** 3-WAY HANDSHAKE **/
-    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen, &time_temp, timerid);
+    printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
 
     //Read from socket until EOF is found   
     while (1) {
+        scanf("%d", &oper);
 
-    	usable_wnd = INIT_WND_SIZE;
+        switch(oper){
+            case 1:
+                sprintf(buff, "%d ", num_threads);
+                strcat(buff, "list\n");
 
-        //Send request
-        #ifdef PERFORMANCE
+                if(pthread_create(&tid[num_threads], 0, (void*)thread_function, (void*)buff)){
+                    fprintf(stderr, "pthread_create() failed");
+                    close(sockfd);
+                    exit(-1);
+                } 
+                num_threads++;
 
-        strcpy(buff, argv[2]);
+                break;
 
-        #else
+            case 2:
+                sprintf(buff, "%d ", num_threads);
+                strcat(buff, "get ");
 
-        printf("\n\n\033[0;34mChoose an operation:\033[0m ");
-        fgets(buff, sizeof(buff), stdin);
+                printf("\033[0;34mWhich file do you want to download?\n\033[0m");
+                scanf("%s", filename);
 
-        #endif 
-     
-        /* CHOOSE OPERATION BY COMMAND */
+                strcat(buff, filename);
 
-        //Send request
-        pk = create_packet(send_next, rcv_next, strlen(buff), buff, DATA);
-        printf("Sending packet #%lu\n", send_next);  
-        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) == -1) {
-            fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
-            free(pk);
-            return 1;
+                if(pthread_create(&tid[num_threads], 0, (void*)thread_function, (void*)buff)){
+                    fprintf(stderr, "pthread_create() failed");
+                    close(sockfd);
+                    exit(-1);
+                }   
+                num_threads++;
+                break;
+
+            case 3:
+                sprintf(buff, "%d ", num_threads);
+                strcat(buff, "put ");
+
+                printf("\033[0;34mWhich file do you want to upload?\n\033[0m");
+                scanf("%s", filename);
+
+                strcat(buff, filename);
+
+                if(pthread_create(&tid[num_threads], 0, (void*)thread_function, (void*)buff)){
+                    fprintf(stderr, "pthread_create() failed");
+                    close(sockfd);
+                    exit(-1);
+                }
+                num_threads++;
+                break;
+
+            case 0:
+                //Wait for every active thread to end
+                for(i=0; i<MAX_CONC_REQ; i++){
+                    if(tid[i] != 0){
+                        if(pthread_join(tid[i], NULL)){
+                            fprintf(stderr, "pthread_join() failed");
+                            close(sockfd);
+                            exit(-1);
+                        }
+                    }else{
+                        break;
+                    }
+                }  
+
+                exit(0);
+            default:
+                printf("Invalid operation.\n\n");
+                break;
         }
-        printf("Packet #%lu correctly sent\n", send_next);
-        send_next += (unsigned long)pk->data_size + 1;
 
-        update_window(pk, wnd, &usable_wnd);
-
-        arm_timer(&time_temp, timerid, 0);
-
-        //Wait for ACK
-        while(1){
-        	if(recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp) == -1) {
-	            failure("Error: couldn't receive ack.");
-	        } else {            
-	            if (pk->type == ACK) {
-	            	disarm_timer(timerid);
-	                printf("Received ACK #%lu.\n", pk->ack_num);
-	                wnd[0] = NULL;
-	                usable_wnd++;
-	                break;	                
-	            }
-	        }
-        }        
-        free(pk);
-
-        //Compute the timeout interval for exchange: REQUEST, ACK
-        timeout_interval(&time_temp);
-
-        //Retrieve command       
-        tok = strtok(buff, " \n");
-        printf("\033[0;34mInput selected:\033[0m %s\n", tok);
-        
-        
-        if (strcmp(tok, "list") == 0) {
-
-            //Execute LIST
-            res = request_list(sockfd, servaddr, &time_temp);
-	    
-        } else if (strcmp(tok, "get") == 0) {
-
-            //Execute GET
-            tok = strtok(NULL, " \n");
-            if(tok == NULL){
-            	printf("To correctly get a file, insert also the name of the file!\n");
-            	continue;
+        if(num_threads == MAX_CONC_REQ){
+            printf("Saturated capacity. Please wait...\n");
+            for(i=0; i<MAX_CONC_REQ; i++){
+                if(tid[i] != 0){
+                    if(pthread_join(tid[i], NULL)){
+                        fprintf(stderr, "pthread_join() failed");
+                        close(sockfd);
+                        exit(-1);
+                    }
+                    tid[i] = 0;
+                    num_threads--;
+                }else{
+                    break;
+                }
             }
-            filename = strdup(tok);
-            printf("Filename: %s\n", filename);
-
-            res = request_get(sockfd, servaddr, filename, &time_temp);
-
-        } else if (strcmp(tok, "put") == 0) {
-
-            //Execute PUT
-            tok = strtok(NULL, " \n");
-            if(tok == NULL){
-            	printf("To correctly upload a file, insert also the name of the file!\n");
-            	continue;
-            }
-            filename = strdup(tok);
-            printf("Filename: %s\n", filename);
-
-            res = request_put(sockfd, servaddr, filename, &time_temp, timerid);
-
-        } else {
-            failure("\033[0;31mError: couldn't retrieve input.\033[0m\n");
-        }
-        
-        if (res == 1) {
-            failure("\033[0;31mInput function error.\033[0m\n");
-        } else {
-            printf("\nOK.\n");
-            demolition(send_next, rcv_next, sockfd, &servaddr, addrlen, &time_temp, timerid);
-            break;
-        }       
+            printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
+        } 
     }
     
     exit(0);

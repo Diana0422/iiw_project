@@ -1,6 +1,7 @@
 #include "windows.h"
 
-void print_wnd(Packet* list[]){
+//DEBUG
+/*void print_wnd(Packet* list[]){
 	int i;
 	printf("\nTransmission window: {");
 	for(i=0; i<INIT_WND_SIZE-1; i++){
@@ -35,7 +36,7 @@ void print_rwnd(Packet** rwnd){
 	}else{
 		printf("NULL}\n\n");
 	}
-}
+}*/
 
 /* UPDATE_WINDOW 
  * @brief add a new transmitted packet to the transmission window
@@ -48,7 +49,7 @@ void update_window(Packet* sent, Packet* list[][INIT_WND_SIZE], int pos, short* 
 
 	list[pos][INIT_WND_SIZE - *free_space] = sent;
 	*free_space = *free_space - 1;
-	print_wnd(list[pos]);
+	//print_wnd(list[pos]);
 }
 
 /* REFRESH_WINDOW 
@@ -82,7 +83,7 @@ void refresh_window(Packet* list[][INIT_WND_SIZE], int pos, int index, short* fr
 		*free_space = INIT_WND_SIZE - count;
 	}
 
-	print_wnd(list[pos]);
+	//print_wnd(list[pos]);
 }
 
 /* ORDER_RWND 
@@ -108,8 +109,6 @@ void order_rwnd(Packet* pk, Packet* buff[], int pos){
 
 	//Fill the gap
 	buff[pos] = pk;
-
-	//print_rwnd(buff);
 }
 
 /* STORE_RWND 
@@ -117,40 +116,26 @@ void order_rwnd(Packet* pk, Packet* buff[], int pos){
  * @param pk: packet to store;
  		  buff: pointer to the receive buffer
  		  size: total size of the buffer
-   @return free space in the buffer; -1 for buffer overflow
  */
 
-int store_rwnd(Packet* pk, Packet* buff[], int size) {
+void store_rwnd(Packet* pk, Packet* buff[], int size) {
 
-	int free, i=0;
+	int i=0;
 
-	//If the buffer is empty, store the packet as first
-	if(buff[i] == NULL){
+	if(buff[i] == NULL){ 	//If the buffer is empty, store the packet as first
 		buff[i] = pk;
-		print_rwnd(buff);
-		free = size-1;
-		return free;
-	}
-
-	//If the buffer is full, return an error
-	if(buff[size-1] != NULL){
-		return -1;
-	}
-
-	//In all other cases: store the packet in order
-	while(buff[i] != NULL){
-		if(pk->seq_num < buff[i]->seq_num){
-			order_rwnd(pk, buff, i);
-			free = size-i-1;
-			return free;
+		
+	}else if(buff[size-1] != NULL){		//If the buffer is full don't do anything
+		//printf("Buffer overflow\n");
+	}else{									//In all other cases: store the packet in order
+		while(buff[i] != NULL){
+			if(pk->seq_num < buff[i]->seq_num){
+				order_rwnd(pk, buff, i);
+			}
+			i++;
 		}
-		i++;
+		buff[i] = pk;
 	}
-
-	buff[i] = pk;
 
 	//print_rwnd(buff);
-
-	free = size-i-1;
-	return free;
 }

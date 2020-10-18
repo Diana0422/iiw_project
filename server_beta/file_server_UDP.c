@@ -3,7 +3,6 @@
 //
 //
 //  Created by Diana Pasquali on 20/07/2020.
-
 #include "server.h"
 
 #define SERV_PORT 5193          //Port number used by the server application
@@ -40,11 +39,10 @@ void retransmission(timer_t* ptr, bool fast_rtx){
     struct sockaddr_in address;
     socklen_t addrlen;
 
-    printf("\n\nCHECK CLIENT INFO:");
+    /*printf("\n\nCHECK CLIENT INFO:");
     printf("** client ack counter: %d\n", cliaddr_head->ack_counter);
-    printf("** client last ack received: %ld\n\033[0m\n", cliaddr_head->last_ack_received);
+    printf("** client last ack received: %ld\n\033[0m\n", cliaddr_head->last_ack_received);*/
 
-    printf("qui 1\n");
     if (fast_rtx == false) {    //Retransmission due to timeout
         //Retrieve the thread for which the timer has expired
         for(int i=0; i<THREAD_POOL; i++){
@@ -64,20 +62,16 @@ void retransmission(timer_t* ptr, bool fast_rtx){
         client_info = client_info->next;
     }
     addrlen = sizeof(address);
-    printf("qui 2\n");
 
     //Fetch the packet to retransmit
     pk = wnd[thread][0];
 
-    printf("qui 3\n");
-
     pthread_mutex_trylock(&wnd_lock[thread]);
-    printf("Retransmitting packet #%lu\n", pk->seq_num);
+    //printf("Retransmitting packet #%lu\n", pk->seq_num);
     if (send_packet(pk, listensd, (struct sockaddr*)&address, addrlen, &to[thread]) == -1) {
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
     }
-    printf("Packet #%lu correctly retransmitted.\n\n", pk->seq_num);
     pthread_mutex_unlock(&wnd_lock[thread]);
 
     arm_timer(&to[thread], timerid[thread], 0);
@@ -112,7 +106,7 @@ void response_list(int sd, int thread, Client* cli_info)
     rcv_next[thread] = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
     usable_wnd[thread] = INIT_WND_SIZE;
 
-    printf("response_list started.\n");
+    //printf("response_list started.\n");
     
     //Send ACK
     if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
@@ -144,13 +138,11 @@ void response_list(int sd, int thread, Client* cli_info)
         //Check if more data can be sent into one packet only
         if((payld += strlen(buff)) > PAYLOAD){
             //Send data packet with filenames
-            printf("Sending packet #%lu\n", send_next);
             pk = create_packet(send_next, rcv_next[thread], strlen(buff), buff, DATA);
             if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
                 fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
                 return;
             }
-            printf("Packet #%lu correctly sent.\n", send_next);
             send_next += (unsigned long)pk->data_size;
 
             pthread_mutex_lock(&wnd_lock[thread]);
@@ -173,13 +165,11 @@ void response_list(int sd, int thread, Client* cli_info)
     }
     
     //Send last data packet with filenames (amount of data smaller than PAYLOAD)
-    printf("Sending packet #%lu\n", send_next);
     pk = create_packet(send_next, rcv_next[thread], strlen(buff), buff, DATA);
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
         fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
         return;
     }
-    printf("Packet #%lu correctly sent.\n", send_next);
     send_next += (int)pk->data_size;
 
     pthread_mutex_lock(&wnd_lock[thread]);
@@ -196,13 +186,10 @@ void response_list(int sd, int thread, Client* cli_info)
         sleep(1);
     }
        
-    printf("Sending the last packet #%lu\n", send_next);
     pk = create_packet(send_next, rcv_next[thread], 0, NULL, DATA);
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
     	fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
-    } else {
-    	printf("Last packet #%lu correctly sent.\n", send_next);
     }
 
     free(buff);
@@ -231,12 +218,12 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
 
     Packet *pk;
     /**END**/
-    printf("THREAD WORKING: thread #%d\n", thread);
+    //printf("THREAD WORKING: thread #%d\n", thread);
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1;    
     usable_wnd[thread] = INIT_WND_SIZE;   
 
-    printf("response_get started.\n\n");
+    //printf("response_get started.\n\n");
 
     //Send ACK
     if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
@@ -252,9 +239,9 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     if (fp == NULL) {
         fprintf(stderr, "Error: couldn't open %s.", filename);
         return;
-    } else {
+    } /*else {
         printf("File %s correctly opened.\n\n", filename);
-    }
+    }*/
 
     //Allocate space
     if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
@@ -267,16 +254,13 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     while(!feof(fp)) {       
         //Read from the file and send data   
         read_size = fread(sendline, 1, PAYLOAD, fp);
-
-        pk = create_packet(send_next, rcv_next[thread], read_size, sendline, DATA);  
-        printf("Sending packet #%lu\n", send_next);     
+        pk = create_packet(send_next, rcv_next[thread], read_size, sendline, DATA);     
         if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
             free(sendline);
             free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
             return;
         }
-        printf("Packet #%lu correctly sent\n\n", send_next);
         send_next += (unsigned long)pk->data_size;
 
         pthread_mutex_lock(&wnd_lock[thread]);
@@ -297,12 +281,9 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     }
 
     pk = create_packet(send_next, rcv_next[thread], 0, NULL, DATA);
-    printf("Sending the last packet #%lu\n", send_next);
     if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return;
-    } else {
-        printf("Last packet #%lu correctly sent.\n\n", send_next);
     }
 
     pthread_mutex_lock(&wnd_lock[thread]);
@@ -345,7 +326,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1; 
 
-    printf("response_put started.\n\n");
+    //printf("response_put started.\n\n");
 
     //Send ACK
     if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
@@ -362,9 +343,9 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     if (fp == NULL) {
         perror("fopen() failed");
         return;
-    } else {
+    } /*else {
         printf("File %s correctly opened.\n", filename);
-    }
+    }*/
 
     /* Receive data in chunks of 65000 bytes */
     while(1){
@@ -385,7 +366,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
                 }
 
             }else{
-                printf("Received packet #%lu in order.\n", cli_info->pack->seq_num);
+                //printf("Received packet #%lu in order.\n", cli_info->pack->seq_num);
                 //Convert byte array to file
                 write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
                 rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
@@ -420,24 +401,17 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
 
         } else if(cli_info->pack->seq_num > rcv_next[thread]){
             //Packet received out of order: store packet in the receive buffer
-            printf("Received packet #%lu out of order.\n", cli_info->pack->seq_num);
-            if(store_rwnd(cli_info->pack, rcv_buffer, MAX_RVWD_SIZE)){
+            //printf("Received packet #%lu out of order.\n", cli_info->pack->seq_num);
+            store_rwnd(cli_info->pack, rcv_buffer, MAX_RVWD_SIZE);
                 
-                //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
-                    return;
-                } 
-
-            }else{
-                printf("Buffer Overflow. Discarding the packet\n");
-                //Send ACK for the last correctly received packet
-                if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
-                    return;
-                }
-            }       
+            //Send ACK for the last correctly received packet
+            if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
+                return;
+            } 
+ 
         } else {
             //Received duplicated packet
-            printf("Received duplicated packet #%lu.\n", cli_info->pack->seq_num );
+            //printf("Received duplicated packet #%lu.\n", cli_info->pack->seq_num );
             //Send ACK for the last correctly received packet
             if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
                 return;
@@ -678,7 +652,7 @@ int main(void)
         } else {
             //If the packet carries a request for a new connection, enstablish a connection
             if (pk_rcv->type == SYN) {
-                printf("\033[0;34mReceived a new connection request.\033[0m\n");
+                //printf("\033[0;34mReceived a new connection request.\033[0m\n");
                 //3-WAY HANDSHAKE
                 if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp, main_timerid) == -1){
                     fprintf(stderr, "\033[0;31mConnection failure.\033[0m\n");
@@ -709,13 +683,13 @@ int main(void)
                 dispatch_client(cliaddr_head, cliaddr, &thread);
                 if(pk_rcv->type == ACK){
                     
-                    printf("Thread %d received ACK #%lu.\n", thread, pk_rcv->ack_num);
+                    //printf("Thread %d received ACK #%lu.\n", thread, pk_rcv->ack_num);
                     pthread_mutex_lock(&wnd_lock[thread]);
                     incoming_ack(thread, cliaddr_head, pk_rcv, wnd, &usable_wnd[thread], time_temp, timerid[thread], &to[thread]);
                     pthread_mutex_unlock(&wnd_lock[thread]);
 
                 }else if(pk_rcv->type == FIN){
-                printf("\033[0;34mReceived a request for connection demolition.\033[0m\n");
+                //printf("\033[0;34mReceived a request for connection demolition.\033[0m\n");
                 
                     //3-WAY HANDSHAKE
                     if(demolition(listensd, &cliaddr, cliaddrlen, &time_temp, timerid[thread]) == -1){

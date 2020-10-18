@@ -113,6 +113,8 @@ Packet unserialize_packet(char* buffer)
 
  	int n;
 
+ 	//printf("Sending packet #%lu\n", pkt->seq_num);
+
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
 
 	gettimeofday(&t->start, NULL);
@@ -121,6 +123,8 @@ Packet unserialize_packet(char* buffer)
  		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
  		return -1;
 	}
+
+	//printf("Packet #%lu correctly sent\n", pkt->seq_num);
 
     return n;
  }
@@ -135,14 +139,14 @@ Packet unserialize_packet(char* buffer)
  {
  	Packet* pack;
 
- 	printf("Sending ACK #%lu.\n", ack);
+ 	//printf("Sending ACK #%lu.\n", ack);
     pack = create_packet(seq, ack, 0, NULL, ACK);
     if (send_packet(pack, socket, (struct sockaddr*)&addr, addrlen, to) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
         free(pack);
         return 1;
     } 
-    printf("ACK #%lu correctly sent.\n", pack->ack_num);
+    //printf("ACK #%lu correctly sent.\n", pack->ack_num);
     free(pack); 
 
     return 0;
@@ -201,14 +205,14 @@ Packet unserialize_packet(char* buffer)
 	return n;
  }
 
+//DEBUG
 
 /* PRINT_PACKET 
  * @brief printf the individual fields of a packet.
  * @param packet to print
  */
-//USED FOR DEBUGGING
 
-void print_packet(Packet pk){
+/*void print_packet(Packet pk){
 	char type_str[7];
 	int type_int = (int)(pk.type);
 
@@ -236,10 +240,10 @@ void print_packet(Packet pk){
 	}
 
 	printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
-	/*int i, count = 1;
+	int i, count = 1;
 	for (i = 0; i < (int)pk.data_size; i++){
 	    printf("%d: %02X\n", count, pk.data[i]);
 	    count++;
 	}
-	printf("\n\n");*/
-}
+	printf("\n\n");
+}*/

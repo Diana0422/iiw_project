@@ -17,11 +17,14 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <dirent.h>
+#include <pthread.h>
+#include <stdbool.h>
 
 #include "windows.h"
 
 #define MAXLINE 1024
 #define MAX_DGRAM_SIZE 65507
+#define MAX_CONC_REQ 3
 
 extern unsigned long rand_lim(int limit);
 

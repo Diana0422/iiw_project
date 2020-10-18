@@ -172,17 +172,18 @@ void incoming_ack(int thread, Client* cli, Packet *ack, Packet* list[][INIT_WND_
 
     for(i=0; i<(INIT_WND_SIZE - *free_space); i++){
         if(list[thread][i]->seq_num == ack->ack_num){
-            printf("Received ACK related to packet #%lu.\n", list[thread][i]->seq_num);
+            //printf("Received ACK related to packet #%lu.\n", list[thread][i]->seq_num);
             break;
         }
     }
-    printf("\033[1;32mcli->last_ack_received =#%lu\n", cli->last_ack_received);
-    printf("cli->ack_counter = %d\033[0m\n", cli->ack_counter);
+
+    //printf("\033[1;32mcli->last_ack_received =#%lu\n", cli->last_ack_received);
+    //printf("cli->ack_counter = %d\033[0m\n", cli->ack_counter);
 
     //Fast retransmission handling
-    printf("\033[1;32mFAST RETRANSMISSION HANDLING STARTS.\033[0m\n");
+    //printf("\033[1;32mFAST RETRANSMISSION HANDLING STARTS.\033[0m\n");
     if (ack->ack_num != cli->last_ack_received) {
-        printf("\033[1;32mNew ack received.\033[0m");
+        //printf("\033[1;32mNew ack received.\033[0m");
         cli->last_ack_received = ack->ack_num;
         cli->ack_counter = 0;
     } else {
@@ -190,15 +191,14 @@ void incoming_ack(int thread, Client* cli, Packet *ack, Packet* list[][INIT_WND_
         //Control il counter has reached 3 repeated acks
         if (cli->ack_counter == 3) {
             cli->ack_counter = 0;   // reset ack counter for this client
-            printf("\033[1;32mFast retransmitting packet #%lu\n", list[thread][i]->seq_num);
+            //printf("\033[1;32mFast retransmitting packet #%lu\n", list[thread][i]->seq_num);
             disarm_timer(timerid);
             retransmission(&timerid, true);   //retransmit
+            //printf("Fast retransmitted packet #%lu\n", list[thread][i]->seq_num);
         }
     }
 
-    if(i == 0){
-        //print_wnd(list[thread]);
-    }else{
+    if(i != 0){
         disarm_timer(timerid);
         refresh_window(list, thread, i, free_space);
         if(list[thread][0] != NULL){           

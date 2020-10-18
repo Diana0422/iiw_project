@@ -17,22 +17,18 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
 
     //Wait for confirmation
     printf("Client waiting for SYNACK packet.\n");
-    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
-        if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
+    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) != -1) {        
+        if(pk->type != SYNACK){
             continue;
-        }
-    }
-
-    if(pk->type != SYNACK){
-        free(pk);
-        failure("Connection failed.");
+        }else{
+            disarm_timer(timerid);
+            break;
+        }       
     }
 
     //Compute the timeout interval for exchange: SYN, SYNACK
     timeout_interval(to);
 
-    disarm_timer(timerid);
-   
     //Close the handshake
     *init_ack = pk->seq_num + 1;
     *init_seq = rand_lim(1000);
@@ -71,19 +67,15 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
 
     //Wait for confirmation
     printf("Client waiting for FINACK packet.\n");
-    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) == -1) {
-        if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
+    while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, to) != -1) {        
+        if(pk->type != FINACK){
             continue;
-        }
+        }else{
+            disarm_timer(timerid);
+            break;
+        }       
     }
-
-    if(pk->type != FINACK){
-        free(pk);
-        failure("Demolition failed.\n");
-    }
-
-    disarm_timer(timerid);
-   
+ 
     //Close the connection
     free(pk);
 
