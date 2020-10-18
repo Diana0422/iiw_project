@@ -17,6 +17,8 @@ Packet* wnd[INIT_WND_SIZE] = {NULL};
 unsigned long rcv_next; //The sequence number of the next byte of data that is expected from the server
 unsigned long send_next; //The sequence number of the next byte of data to be sent to the server
 short usable_wnd; //The amount of packets that can be sent 
+unsigned long last_ack_rcvd; // The sequence number of the last ack received (to fast retransmit)
+int acks_count = 0; // counter for repeated acks (to fast retransmit packet).
 
 Timeout time_temp;
 timer_t timerid;
@@ -220,6 +222,8 @@ int request_get(int sd, struct sockaddr_in addr, char* filename, Timeout* time_o
     
     /* Receive data in chunks of 65000 bytes */
     while((n = recv_packet(pk, sd, (struct sockaddr*)&addr, addrlen, time_out) != -1)){
+        //DEBUG:
+        print_packet(*pk);
         //Check if the received packet is in order with the stream of bytes
         if(pk->seq_num == rcv_next){
             //Check if transmission has ended.
@@ -388,6 +392,19 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
 
                 if(pack->type == ACK){
                     printf("Received ACK #%lu.\n", pack->ack_num);
+                    if (last_ack_rcvd != pack->ack_num) {
+                        // New ack received
+                        printf("\033[1;32mNew ack received.\033[0m\n"); //debug
+                        last_ack_rcvd = pack->ack_num; 
+                    } else {
+                        // Increase acks counter
+                        acks_count++;
+                        if (acks_count == 3) {
+                            // Fast retransmission
+                            disarm_timer(timerid);
+                            retransmission();
+                        }
+                    }
                     while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){
                         i++;
                     }
@@ -428,6 +445,19 @@ int request_put(int sd, struct sockaddr_in addr, char *filename, Timeout* time_o
 
             if(pack->type == ACK){
                 printf("Received ACK #%lu.\n", pack->ack_num);
+                if (last_ack_rcvd != pack->ack_num) {
+                        // New ack received
+                        printf("\033[1;32mNew ack received.\033[0m\n"); //debug
+                        last_ack_rcvd = pack->ack_num; 
+                    } else {
+                        // Increase acks counter
+                        acks_count++;
+                        if (acks_count == 3) {
+                            // Fast retransmission
+                            disarm_timer(timerid);
+                            retransmission();
+                        }
+                    }
                 while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){
                     i++;
                 }
