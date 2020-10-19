@@ -17,7 +17,7 @@ Packet* wnd_base[MAX_CONC_REQ];     //Packet at the base of the transmission win
 Timeout time_temp[MAX_CONC_REQ];
 timer_t timerid[MAX_CONC_REQ];
 
-int sockfd;
+int sockfd[MAX_CONC_REQ];
 socklen_t addrlen = sizeof(struct sockaddr_in);
 struct sockaddr_in servaddr;
 
@@ -27,32 +27,34 @@ struct sockaddr_in servaddr;
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void retransmission(timer_t* ptr, bool fast_rtx){
+void retransmission(timer_t* ptr, bool fast_rtx, int thread){
 
-    int thread = 0;
-    Packet* pk;
+    int id = 0;
+    Packet* pk = NULL;
 
     if (fast_rtx == false) {    //Retransmission due to timeout
         //Retrieve the thread for which the timer has expired
         for(int i=0; i<MAX_CONC_REQ; i++){
             if(timerid+i == ptr){
-                thread = i;
+                id = i;
                 break;
             }
         }
+    }else{
+        id = thread;
     }
    
     //Fetch the packet to retransmit
-    pk = wnd_base[thread];
+    pk = wnd_base[id];
 
     //printf("Retransmitting packet #%lu\n", pk->seq_num);
-    if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
+    if (send_packet(pk, sockfd[thread], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
     }
     printf("Packet #%lu correctly retransmitted.\n\n", pk->seq_num);
 
-    arm_timer(&time_temp[thread], timerid[thread], 0);
+    arm_timer(&time_temp[id], timerid[id], 0);
 
     return;
 }
@@ -80,7 +82,7 @@ int request_list(int id, unsigned long send_next, unsigned long rcv_next)
     }   
  
     //Retreive packets
-    while (recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1) {
+    while (recv_packet(pk, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1) {
 
         if(pk->seq_num == rcv_next){
     	//Packet received in order: gets read by the client
@@ -95,7 +97,7 @@ int request_list(int id, unsigned long send_next, unsigned long rcv_next)
                 }
 
                 //Send ACK for the last correctly received packet
-                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+                if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
 
@@ -126,7 +128,7 @@ int request_list(int id, unsigned long send_next, unsigned long rcv_next)
                 }             
 
                 //Send ACK for the last correctly received packet
-                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+                if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
 
@@ -139,7 +141,7 @@ int request_list(int id, unsigned long send_next, unsigned long rcv_next)
          	store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
          		
             //Send ACK for the last correctly received packet
-            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+            if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
   	
@@ -148,7 +150,7 @@ int request_list(int id, unsigned long send_next, unsigned long rcv_next)
             //printf("Received duplicated packet #%lu.\n", pk->seq_num);
 
             //Send ACK for the last correctly received packet
-            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+            if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
         }
@@ -197,7 +199,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
     }
     
     /* Receive data in chunks of 65000 bytes */
-    while(recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
+    while(recv_packet(pk, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
         //Check if the received packet is in order with the stream of bytes
         if(pk->seq_num == rcv_next){
             //Check if transmission has ended.
@@ -210,7 +212,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
                 }
 
                 //Send ACK for the last correctly received packet
-                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+                if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
 
@@ -244,7 +246,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
                 }   
      
                 //Send ACK for the last correctly received packet
-                if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+                if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                     return 1;
                 }
             }
@@ -255,7 +257,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
             store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
                 
             //Send ACK for the last correctly received packet
-            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+            if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
     
@@ -264,7 +266,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
             //printf("Received duplicated packet #%lu.\n", pk->seq_num);
 
             //Send ACK for the last correctly received packet
-            if(send_ack(sockfd, servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
+            if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
         }
@@ -299,8 +301,6 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
     int acks_count = 0;                 //Counter for repeated acks (to fast retransmit packet).
     /**END**/
     
-    wnd_base[id] = wnd[0];
-
     //Open the file
     fp = fopen(filename, "rb");
     if (fp == NULL) {
@@ -327,7 +327,7 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
         read_size = fread(sendline, 1, PAYLOAD, fp);
 
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);    
-        if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
+        if (send_packet(pk, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
             free(sendline);
             free(pk);
             fprintf(stderr, "Error: couldn't send data.\n");
@@ -336,6 +336,7 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
         send_next += (unsigned long)pk->data_size;
 
         update_window(pk, wnd, &usable_wnd);
+        wnd_base[id] = wnd[0];
 
         //If it's the the only packet in the window, start timer
         if(usable_wnd == INIT_WND_SIZE-1){
@@ -345,10 +346,10 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
         while(usable_wnd == 0){
             //FULL WINDOW: wait for ACK until either it is received or the timer expires           
             i = 0;  
-            while(try_recv_packet(pack, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
+            while(try_recv_packet(pack, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
 
                 if(pack->type == ACK){
-                    printf("Received ACK #%lu.\n", pack->ack_num);
+                    //printf("Received ACK #%lu.\n", pack->ack_num);
                     if (last_ack_rcvd != pack->ack_num) {
                         // New ack received
                         //printf("\033[1;32mNew ack received.\033[0m\n"); //debug
@@ -360,7 +361,7 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                             // Fast retransmission
                             printf("FAST RETRANSMISSION\n");
                             disarm_timer(timerid[id]);
-                            retransmission(&timerid[id], true);
+                            retransmission(&timerid[id], true, id);
                         }
                     }
                     while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){
@@ -378,6 +379,7 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                 }
 
                 refresh_window(wnd, i, &usable_wnd);
+                wnd_base[id] = wnd[0];
             }
 
         }
@@ -386,20 +388,21 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
     }
 
     pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
-    if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
+    if (send_packet(pk, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) == -1) {
         fprintf(stderr, "Error: couldn't send the filename.\n");
         return 1;
     }
 
     update_window(pk, wnd, &usable_wnd);
+    wnd_base[id] = wnd[0];
 
     //Wait for ACK until every packet is correctly received
     while(usable_wnd != INIT_WND_SIZE-1){
         i = 0;  
-        while(try_recv_packet(pack, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
+        while(try_recv_packet(pack, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
 
             if(pack->type == ACK){
-                printf("Received ACK #%lu.\n", pack->ack_num);
+                //printf("Received ACK #%lu.\n", pack->ack_num);
                 if (last_ack_rcvd != pack->ack_num) {
                         // New ack received
                        //printf("\033[1;32mNew ack received.\033[0m\n"); //debug
@@ -411,7 +414,7 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                             // Fast retransmission
                             printf("FAST RETRANSMISSION\n");
                             disarm_timer(timerid[id]);
-                            retransmission(&timerid[id], true);
+                            retransmission(&timerid[id], true, id);
                         }
                     }
 
@@ -429,6 +432,7 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                 timeout_interval(&time_temp[id]);  
             }
             refresh_window(wnd, i, &usable_wnd);
+            wnd_base[id] = wnd[0];
         }
     }
     
@@ -469,7 +473,8 @@ void* thread_function(void* arg){
     sscanf(tok, "%d", &thread);
 
     /** 3-WAY HANDSHAKE **/
-    handshake(pk, &send_next, &rcv_next, sockfd, &servaddr, addrlen, &time_temp[thread], timerid[thread]);
+    handshake(pk, &send_next, &rcv_next, sockfd[thread], &servaddr, addrlen, &time_temp[thread], timerid[thread]);
+    printf("Connection open\n");
     
     //Retrieve request
     tok = strtok(NULL, " \n");
@@ -488,7 +493,7 @@ void* thread_function(void* arg){
 
     //Send request
     pk = create_packet(send_next, rcv_next, strlen(cmd), cmd, DATA);    
-    if (send_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
+    if (send_packet(pk, sockfd[thread], (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
         fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
         free(pk);
         pthread_exit((void*)-1);
@@ -502,7 +507,7 @@ void* thread_function(void* arg){
 
     //Wait for the ACK related to the request
     while(1){
-        if(recv_packet(pk, sockfd, (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
+        if(recv_packet(pk, sockfd[thread], (struct sockaddr*)&servaddr, addrlen, &time_temp[thread]) == -1) {
             failure("Error: couldn't receive ack.");
         } else {            
             if ((pk->type == ACK) && (pk->ack_num == send_next)) {
@@ -539,8 +544,11 @@ void* thread_function(void* arg){
         pthread_exit((void*)-1);
 
     } else { 
+        wnd_base[thread] = NULL;
 
-        demolition(send_next, rcv_next, sockfd, &servaddr, addrlen, &time_temp[thread], timerid[thread]);
+        demolition(send_next, rcv_next, sockfd[thread], &servaddr, addrlen, &time_temp[thread], timerid[thread]);
+        printf("Connection closed\n");
+
         printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
 
         pthread_exit(0);      
@@ -567,9 +575,11 @@ int main(int argc, char* argv[])
     /**END**/
 
     //Create socket
-    while ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        if(check_failure("\033[0;31mSocket() failed\033[0m")){
-            continue;
+    for(i=0; i<MAX_CONC_REQ; i++){
+        while ((sockfd[i] = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+            if(check_failure("\033[0;31mSocket() failed\033[0m")){
+                continue;
+            }
         }
     }
     
@@ -605,6 +615,7 @@ int main(int argc, char* argv[])
     //Read from socket until EOF is found   
     while (1) {
         scanf("%d", &oper);
+        while(getchar()!='\n');
 
         switch(oper){
             case 1:
@@ -613,7 +624,9 @@ int main(int argc, char* argv[])
 
                 if(pthread_create(&tid[num_threads], 0, (void*)thread_function, (void*)buff)){
                     fprintf(stderr, "pthread_create() failed");
-                    close(sockfd);
+                    for(i=0; i<MAX_CONC_REQ; i++){
+                        close(sockfd[i]);
+                    }
                     exit(-1);
                 } 
                 num_threads++;
@@ -631,7 +644,9 @@ int main(int argc, char* argv[])
 
                 if(pthread_create(&tid[num_threads], 0, (void*)thread_function, (void*)buff)){
                     fprintf(stderr, "pthread_create() failed");
-                    close(sockfd);
+                    for(i=0; i<MAX_CONC_REQ; i++){
+                        close(sockfd[i]);
+                    }
                     exit(-1);
                 }   
                 num_threads++;
@@ -648,7 +663,9 @@ int main(int argc, char* argv[])
 
                 if(pthread_create(&tid[num_threads], 0, (void*)thread_function, (void*)buff)){
                     fprintf(stderr, "pthread_create() failed");
-                    close(sockfd);
+                    for(i=0; i<MAX_CONC_REQ; i++){
+                        close(sockfd[i]);
+                    }
                     exit(-1);
                 }
                 num_threads++;
@@ -660,7 +677,9 @@ int main(int argc, char* argv[])
                     if(tid[i] != 0){
                         if(pthread_join(tid[i], NULL)){
                             fprintf(stderr, "pthread_join() failed");
-                            close(sockfd);
+                            for(i=0; i<MAX_CONC_REQ; i++){
+                                close(sockfd[i]);
+                            }
                             exit(-1);
                         }
                     }else{
@@ -680,7 +699,9 @@ int main(int argc, char* argv[])
                 if(tid[i] != 0){
                     if(pthread_join(tid[i], NULL)){
                         fprintf(stderr, "pthread_join() failed");
-                        close(sockfd);
+                        for(i=0; i<MAX_CONC_REQ; i++){
+                            close(sockfd[i]);
+                        }
                         exit(-1);
                     }
                     tid[i] = 0;
@@ -693,5 +714,8 @@ int main(int argc, char* argv[])
         } 
     }
     
+    for(i=0; i<MAX_CONC_REQ; i++){
+        close(sockfd[i]);
+    }
     exit(0);
 }

@@ -193,8 +193,8 @@ void incoming_ack(int thread, Client* cli, Packet *ack, Packet* list[][INIT_WND_
             cli->ack_counter = 0;   // reset ack counter for this client
             //printf("\033[1;32mFast retransmitting packet #%lu\n", list[thread][i]->seq_num);
             disarm_timer(timerid);
-            retransmission(&timerid, true);   //retransmit
-            //printf("Fast retransmitted packet #%lu\n", list[thread][i]->seq_num);
+            retransmission(&timerid, true, thread);   //retransmit
+            printf("Fast retransmitted packet #%lu\n", list[thread][i]->seq_num);
         }
     }
 

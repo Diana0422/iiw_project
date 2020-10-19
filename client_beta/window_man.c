@@ -49,7 +49,7 @@ void update_window(Packet* sent, Packet** list, short* free_space){
 
 	list[INIT_WND_SIZE - *free_space] = sent;
 	*free_space = *free_space - 1;
-	print_wnd(list);
+	//print_wnd(list);
 }
 
 /* REFRESH_WINDOW 
@@ -82,7 +82,7 @@ void refresh_window(Packet** list, int index, short* free_space){
 
 	*free_space = INIT_WND_SIZE - count;
 
-	print_wnd(list);
+	//print_wnd(list);
 }
 
 /* ORDER_RWND 

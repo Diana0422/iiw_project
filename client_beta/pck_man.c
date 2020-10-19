@@ -46,10 +46,17 @@ char* serialize_packet(Packet* packet)
 	}
 	memset(buffer, 0, MAX_DGRAM_SIZE);
 
-	sprintf(buffer, "%lu %lu %ld %d ", packet->seq_num, packet->ack_num, packet->data_size, (int)packet->type);
+	//printf("packet %p\n", packet);
+	
+	/*printf("seq_num %lu\n", packet->seq_num);
+	printf("ack_num %lu\n", packet->ack_num);
+	printf("data_size %ld\n", packet->data_size);
+	printf("type %d\n", (int)packet->type);*/
 
+	sprintf(buffer, "%lu %lu %ld %d ", packet->seq_num, packet->ack_num, packet->data_size, (int)packet->type);
+	
 	if(packet->data_size){
-		memcpy(buffer+strlen(buffer), packet->data, packet->data_size);
+		memcpy(buffer+strlen(buffer), packet->data, packet->data_size);		
 	}else{
 		strcat(buffer, packet->data);
 	}
@@ -116,9 +123,9 @@ Packet unserialize_packet(char* buffer)
  	//printf("Sending packet #%lu\n", pkt->seq_num);
 
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
-
+ 	
 	gettimeofday(&t->start, NULL);
-
+	
  	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
  		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
  		return -1;

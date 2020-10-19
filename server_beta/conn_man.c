@@ -8,7 +8,7 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
     pk = create_packet(*init_seq, 0, 0, (char*)NULL, SYNACK);
 
     //Send a SYNACK to connect to the client    
-    printf("Server sends a SYNACK packet.\n");   
+    //printf("Server sends a SYNACK packet.\n");   
     while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
@@ -20,7 +20,7 @@ int handshake(Packet* pk, unsigned long* init_seq, int sockfd, struct sockaddr_i
     arm_timer(to, timerid, 1);
 
     //Wait for ACK
-    printf("Server waiting for the ACK to initialize the connection.\n");
+    //printf("Server waiting for the ACK to initialize the connection.\n");
     while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
@@ -52,7 +52,7 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout*
     pk = create_packet(0, 0, 0, (char*)NULL, FINACK);
     
     //Send a SYNACK to connect to the client    
-    printf("Server sends a FINACK packet.\n");   
+    //printf("Server sends a FINACK packet.\n");   
     while (send_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");
@@ -63,7 +63,7 @@ int demolition(int sockfd, struct sockaddr_in* addr, socklen_t addrlen, Timeout*
     arm_timer(to, timerid, 0);
 
     //Wait for ACK
-    printf("Server waiting for the ACK to close the connection.\n");
+    //printf("Server waiting for the ACK to close the connection.\n");
     while (recv_packet(pk, sockfd, (struct sockaddr*)addr, addrlen, to) == -1) {
         if(errno != EINTR){
             fprintf(stderr, "Couldn't contact client.\n");

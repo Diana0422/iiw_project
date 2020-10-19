@@ -18,6 +18,8 @@ short usable_wnd[THREAD_POOL];      //The amount of bytes that can be sent
 
 int sem_client;     //Semaphore descriptor: signal an incoming client to serve
 int listensd;       //Listening socket descriptor: transmission 
+//int rtx_sock;       //Retransmission socket
+//int sockets[THREAD_POOL];
 
 Client *cliaddr_head;   //Pointer to Client structure: head of the client list
 
@@ -32,8 +34,8 @@ Timeout to[THREAD_POOL];      //Timeout structures related to each thread
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void retransmission(timer_t* ptr, bool fast_rtx){
-    int thread = 0;
+void retransmission(timer_t* ptr, bool fast_rtx, int thread){
+    int id = 0;
     Packet* pk;
     Client* client_info = cliaddr_head;
     struct sockaddr_in address;
@@ -47,15 +49,17 @@ void retransmission(timer_t* ptr, bool fast_rtx){
         //Retrieve the thread for which the timer has expired
         for(int i=0; i<THREAD_POOL; i++){
             if(timerid+i == ptr){
-                thread = i;
+                id = i;
                 break;
             }
         }
+    }else{
+        id = thread;
     }
 
     //Fetch the client's information to proceed with the retransmission
     while(client_info != NULL){
-        if(thread == (client_info->server)) {
+        if(id == (client_info->server)) {
             address = client_info->addr;
             break;
         }
@@ -64,17 +68,15 @@ void retransmission(timer_t* ptr, bool fast_rtx){
     addrlen = sizeof(address);
 
     //Fetch the packet to retransmit
-    pk = wnd[thread][0];
+    pk = wnd[id][0];
 
-    pthread_mutex_trylock(&wnd_lock[thread]);
     //printf("Retransmitting packet #%lu\n", pk->seq_num);
-    if (send_packet(pk, listensd, (struct sockaddr*)&address, addrlen, &to[thread]) == -1) {
+    if (send_packet(pk, listensd, (struct sockaddr*)&address, addrlen, &to[id]) == -1) {
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
     }
-    pthread_mutex_unlock(&wnd_lock[thread]);
 
-    arm_timer(&to[thread], timerid[thread], 0);
+    arm_timer(&to[id], timerid[id], 0);
 
     return;
 }
@@ -528,25 +530,39 @@ int main(void)
 
     /**INITIALIZAZION OF THE STRUCTURES**/
 
-    //Create listening socket
+    //Create sockets
     if ((listensd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         fprintf(stderr, "socket() failed");
         exit(-1);
     }
+
+    /*if ((rtx_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        fprintf(stderr, "socket() failed");
+        exit(-1);
+    }*/
     
     //Initialize server IP address
     memset((void*)&servaddr, 0, sizeof(servaddr)); 
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(SERV_PORT);
-    
+    servaddr.sin_port = htons(SERV_PORT);  
+
     //Assign server address to the socket
     if (bind(listensd, (struct sockaddr*)&servaddr, servaddrlen) < 0) {
         fprintf(stderr, "bind() failed");
         exit(-1);
+    } /*else {
+        printf("\033[0;32mBinding completed successfully.\033[0m\n");
+    }*/
+
+    /*servaddr.sin_port = htons(SERV_PORT+1);
+
+    if (bind(rtx_sock, (struct sockaddr*)&servaddr, servaddrlen) < 0) {
+        fprintf(stderr, "bind() failed");
+        exit(-1);
     } else {
         printf("\033[0;32mBinding completed successfully.\033[0m\n");
-    }
+    }*/
 
     //Initialize semaphores
     while((sem_client = semget(ksem_client, 1, IPC_CREAT|IPC_PRIVATE|0600)) == -1){

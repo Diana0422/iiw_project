@@ -31,4 +31,4 @@ extern int check_failure(const char*);
 	
 extern int failure(const char*);
 
-extern void retransmission(timer_t*, bool);
+extern void retransmission(timer_t*, bool, int);
