@@ -43,7 +43,7 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
     }else{
         id = thread;
     }
-   
+
     //Fetch the packet to retransmit
     pk = wnd_base[id];
 
@@ -52,7 +52,8 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
     }
-    printf("Packet #%lu correctly retransmitted.\n\n", pk->seq_num);
+    printf("\r ** Packet #%lu correctly retransmitted.        \t\t", pk->seq_num);
+    fflush(stdout);
 
     arm_timer(&time_temp[id], timerid[id], 0);
 
@@ -93,6 +94,7 @@ int request_list(int id, unsigned long send_next, unsigned long rcv_next)
                 //Data transmission completed: check if the receive buffer is empty
                 if(rcv_buffer[0] == NULL){
                     printf("Transmission has completed successfully.\n");
+                    fflush(stdout);
                     return 0;
                 }
 
@@ -206,7 +208,8 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
             if(pk->data_size == 0){
                 //Data transmission completed: check if the receive buffer is empty
                 if(rcv_buffer[0] == NULL){
-                    printf("Transmission has completed successfully.\n");
+                    printf("\rTransmission has completed successfully.");
+                    fflush(stdout);
                     fclose(fp);
                     return 0;
                 }
@@ -277,6 +280,9 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
             fprintf(stderr, "Error: couldn't malloc packet.\n");
             return 0;
         }
+
+        //Print progress
+        //printf("\033[1;34m%ld bytes downloaded.\033[0m\n", write_size);
     }
 
     return 0;
@@ -291,6 +297,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
 int request_put(int id, char *filename, unsigned long send_next, unsigned long rcv_next, short usable_wnd)
 {
     /**VARIABLE DEFINITIONS**/
+    int done;
     FILE *fp;
     ssize_t read_size;
     char* sendline;
@@ -307,6 +314,11 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
         fprintf(stderr, "Error: cannot open file %s.\n", filename);
         return 1;
     }
+
+    //Get file size to print progress
+    fseek(fp, 0, SEEK_END);
+    int size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
     
     //Allocate space
     if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
@@ -335,6 +347,11 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
         }
         send_next += (unsigned long)pk->data_size;
 
+        //Print progress
+        done += read_size;
+        double percent = (double)((double)done/size);
+        print_progress(percent);
+
         update_window(pk, wnd, &usable_wnd);
         wnd_base[id] = wnd[0];
 
@@ -359,7 +376,6 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                         acks_count++;
                         if (acks_count == 3) {
                             // Fast retransmission
-                            printf("FAST RETRANSMISSION\n");
                             disarm_timer(timerid[id]);
                             retransmission(&timerid[id], true, id);
                         }
@@ -412,7 +428,8 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                         acks_count++;
                         if (acks_count == 3) {
                             // Fast retransmission
-                            printf("FAST RETRANSMISSION\n");
+                            printf("\rFAST RETRANSMISSION\r");
+                            fflush(stdout);
                             disarm_timer(timerid[id]);
                             retransmission(&timerid[id], true, id);
                         }
@@ -434,6 +451,8 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
             refresh_window(wnd, i, &usable_wnd);
             wnd_base[id] = wnd[0];
         }
+
+
     }
     
     free(sendline);
@@ -610,6 +629,7 @@ int main(int argc, char* argv[])
         }
     }
 
+
     printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
 
     //Read from socket until EOF is found   
@@ -650,6 +670,7 @@ int main(int argc, char* argv[])
                     exit(-1);
                 }   
                 num_threads++;
+                printf("thread #%ld created.\n", tid[num_threads]);  //debug
                 break;
 
             case 3:
@@ -669,6 +690,7 @@ int main(int argc, char* argv[])
                     exit(-1);
                 }
                 num_threads++;
+                printf("thread #%ld created.\n", tid[num_threads]); //debug
                 break;
 
             case 0:

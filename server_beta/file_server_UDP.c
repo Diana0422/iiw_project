@@ -696,35 +696,47 @@ int main(void)
 
             }else{
                 //Find out who's serving the client: to signal a new packet to the thread
+                printf("GOING IN DISPATCH.\n");
                 dispatch_client(cliaddr_head, cliaddr, &thread);
+                printf("EXITING DISPATCH.\n");
+
+                printf("GOING IN ACK HANDLING.\n");
                 if(pk_rcv->type == ACK){
                     
                     //printf("Thread %d received ACK #%lu.\n", thread, pk_rcv->ack_num);
                     pthread_mutex_lock(&wnd_lock[thread]);
+                    printf("GOING IN INCOMING ACK.\n");
                     incoming_ack(thread, cliaddr_head, pk_rcv, wnd, &usable_wnd[thread], time_temp, timerid[thread], &to[thread]);
+                    printf("EXITING INCOMING ACK.\n");
                     pthread_mutex_unlock(&wnd_lock[thread]);
 
+                printf("GOING IN CONNECTION FIN.\n");
                 }else if(pk_rcv->type == FIN){
                 //printf("\033[0;34mReceived a request for connection demolition.\033[0m\n");
                 
                     //3-WAY HANDSHAKE
+                    printf("GOING IN DEMOLITION.\n");
                     if(demolition(listensd, &cliaddr, cliaddrlen, &time_temp, timerid[thread]) == -1){
                         fprintf(stderr, "\033[0;31mDemolition failure.\033[0m\n");
                         printf("\033[0;34mWaiting for a request...\033[0m\n");
                         continue;
-
+                    printf("EXITING DEMOLITION.\n");    
                     }else{
                         printf("Connection closed.\n");
 
                         //Add new client address to the list
                         pthread_mutex_lock(&list_mux);
+                        printf("GOING IN REMOVE CLIENT.\n");
                         remove_client(&cliaddr_head, cliaddr);
+                        printf("EXITING REMOVE CLIENT.\n");
                         pthread_mutex_unlock(&list_mux);
                     }
                 }else{
                     pthread_mutex_lock(&mux_free[thread]);                
                     //Update the new packet in the client node so that the thread can fetch new data
+                    printf("GOING IN UPDATE PACKET.\n");
                     update_packet(cliaddr_head, thread, pk_rcv, time_temp);
+                    printf("EXITITNG UPDATE PACKET.\n");
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }
             }   

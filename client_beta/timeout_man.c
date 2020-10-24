@@ -26,9 +26,10 @@ void timeout_interval(Timeout* time)
 	//convert interval double to timeval structure values
 	usec = interval * 1000;	
 	time->interval.tv_sec = usec /1000000;
-	time->interval.tv_usec = usec % 1000000;	
-	//printf("** interval.tv_sec = %ld\n", time->interval.tv_sec);
-	printf("** interval.tv_usec = %ld\033[0m\n", time->interval.tv_usec);
+	time->interval.tv_usec = usec % 1000000;
+	printf(" ** interval.tv_sec = %ld | ", time->interval.tv_sec);
+	printf("** interval.tv_usec = %ld\n", time->interval.tv_usec);
+	fflush(stdout);
 }
 
 
@@ -68,9 +69,6 @@ void disarm_timer(timer_t id){
 }
 
 void timeout_handler(int sig, siginfo_t* si, void* uc){
-
-	printf("TIMER EXPIRED\n");
-
 	timer_t* tmptr;		//Pointer to the timer that caused a timeout
 	tmptr = si->si_value.sival_ptr;
 
