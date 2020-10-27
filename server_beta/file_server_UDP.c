@@ -327,9 +327,6 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     /**END**/
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1; 
-
-    //printf("response_put started.\n\n");
-
     //Send ACK
     if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
         return;
@@ -345,9 +342,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     if (fp == NULL) {
         perror("fopen() failed");
         return;
-    } /*else {
-        printf("File %s correctly opened.\n", filename);
-    }*/
+    }
 
     /* Receive data in chunks of 65000 bytes */
     while(1){

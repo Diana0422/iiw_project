@@ -27,8 +27,8 @@ void timeout_interval(Timeout* time)
 	usec = interval * 1000;	
 	time->interval.tv_sec = usec /1000000;
 	time->interval.tv_usec = usec % 1000000;
-	printf(" ** interval.tv_sec = %ld | ", time->interval.tv_sec);
-	printf("** interval.tv_usec = %ld\n", time->interval.tv_usec);
+	//printf(" ** interval.tv_sec = %ld | ", time->interval.tv_sec);
+	//printf("** interval.tv_usec = %ld\n", time->interval.tv_usec);
 	fflush(stdout);
 }
 

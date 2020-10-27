@@ -50,8 +50,4 @@ extern void print_list(Client*);
 
 extern unsigned long rand_lim(int);
 
-extern char* read_file(FILE*, char*, size_t*);
- 
-extern FILE* write_file(FILE*, char*, char*, size_t);
-
 #endif /* client_test_h */

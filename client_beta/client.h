@@ -19,6 +19,7 @@
 #include <dirent.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <fcntl.h>
 
 #include "windows.h"
 
@@ -28,9 +29,7 @@
 
 extern unsigned long rand_lim(int limit);
 
-extern char* read_file(FILE*, char*, size_t*);
-
-extern FILE* write_file(FILE*, char*, char*, size_t);
+extern void print_progress(double, FILE*);
  
 #endif /* client_h */
 

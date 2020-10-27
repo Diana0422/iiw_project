@@ -11,6 +11,7 @@
 
 #define SERV_PORT 5193
 #define DIR_PATH files
+#define LOGDIM	50
 
 Packet* wnd_base[MAX_CONC_REQ];     //Packet at the base of the transmission window (global for retransmission)
 
@@ -20,6 +21,21 @@ timer_t timerid[MAX_CONC_REQ];
 int sockfd[MAX_CONC_REQ];
 socklen_t addrlen = sizeof(struct sockaddr_in);
 struct sockaddr_in servaddr;
+
+/*
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ LOG
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ */
+
+void* log_thread(void* p){
+	char buff[MAXLINE];
+
+	sprintf(buff, "mate-terminal -e 'tail -F %s --pid %d'", (char*)p, getpid());
+    system(buff);
+
+   	pthread_exit(0);
+}
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -52,7 +68,7 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
     }
-    printf("\r ** Packet #%lu correctly retransmitted.        \t\t", pk->seq_num);
+    //printf("\r ** Packet #%lu correctly retransmitted.        \t\t", pk->seq_num);
     fflush(stdout);
 
     arm_timer(&time_temp[id], timerid[id], 0);
@@ -220,8 +236,7 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
                 }
 
             }else{
-                //printf("Received packet #%lu in order.\n", pk->seq_num);
-                //Convert byte array to file
+                //Packet receiver in order
                 write_size += fwrite(pk->data, 1, pk->data_size, fp);
                 rcv_next += (unsigned long)pk->data_size;
 
@@ -256,7 +271,6 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
             
         }else if(pk->seq_num > rcv_next){
             //Packet received out of order: store packet in the receive buffer
-            //printf("Received packet #%lu out of order.\n", pk->seq_num);
             store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
                 
             //Send ACK for the last correctly received packet
@@ -266,15 +280,12 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
     
         } else{
             //Received duplicated packet
-            //printf("Received duplicated packet #%lu.\n", pk->seq_num);
-
-            //Send ACK for the last correctly received packet
             if(send_ack(sockfd[id], servaddr, addrlen, send_next, rcv_next, &time_temp[id])){
                 return 1;
             }
         }
 
-        //Change the pk address or the receive buffer will have all identical packets: waste of memory -> looking for alternatives
+        //Reset the packet
         pk = (Packet*)malloc(sizeof(Packet));
         if (pk == NULL) {
             fprintf(stderr, "Error: couldn't malloc packet.\n");
@@ -297,16 +308,34 @@ int request_get(int id, char* filename, unsigned long send_next, unsigned long r
 int request_put(int id, char *filename, unsigned long send_next, unsigned long rcv_next, short usable_wnd)
 {
     /**VARIABLE DEFINITIONS**/
-    int done;
-    FILE *fp;
+    FILE *fp, *log_d;
     ssize_t read_size;
     char* sendline;
+
+    char logname[LOGDIM];
+    pthread_t logtid;
+
     Packet *pk, *pack;
-    int i;
     Packet* wnd[INIT_WND_SIZE] = {NULL};
-    unsigned long last_ack_rcvd;        //The sequence number of the last ack received (to fast retransmit)
-    int acks_count = 0;                 //Counter for repeated acks (to fast retransmit packet).
+
+    unsigned long last_ack_rcvd;        		//The sequence number of the last ack received (to fast retransmit)
+    int done, i, acks_count = 0; 
     /**END**/
+
+    printf("Uploading %s\n", filename);
+
+    //Open the log
+    sprintf(logname, "log/log%d.log", id);
+    log_d = fopen(logname, "w+");
+    if (log_d == NULL) {
+        fprintf(stderr, "Error: cannot open file %s.\n", logname);
+        return 1;
+    }
+
+    if(pthread_create(&logtid, 0, log_thread, logname)){
+    	fprintf(stderr, "pthread_create() failed");
+        return 1;
+    }
     
     //Open the file
     fp = fopen(filename, "rb");
@@ -349,8 +378,8 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
 
         //Print progress
         done += read_size;
-        double percent = (double)((double)done/size);
-        print_progress(percent);
+        double percent = (double)done/size;
+		print_progress(percent, log_d);
 
         update_window(pk, wnd, &usable_wnd);
         wnd_base[id] = wnd[0];
@@ -360,11 +389,10 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
             arm_timer(&time_temp[id], timerid[id], 0);
         }
 
-        while(usable_wnd == 0){
+        while(!usable_wnd){
             //FULL WINDOW: wait for ACK until either it is received or the timer expires           
             i = 0;  
             while(try_recv_packet(pack, sockfd[id], (struct sockaddr*)&servaddr, addrlen, &time_temp[id]) != -1){
-
                 if(pack->type == ACK){
                     //printf("Received ACK #%lu.\n", pack->ack_num);
                     if (last_ack_rcvd != pack->ack_num) {
@@ -380,7 +408,9 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                             retransmission(&timerid[id], true, id);
                         }
                     }
-                    while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){
+
+                    //Count acknowledged packets
+                    while((i < INIT_WND_SIZE) && (pack->ack_num > wnd[i]->seq_num)){ 
                         i++;
                     }
                 }
@@ -388,12 +418,15 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
 
             if(i != 0){
                 if((i+1 < INIT_WND_SIZE+1) && (wnd[i+1] != NULL)){
+                	//Packets still in flight
                     arm_timer(&time_temp[id], timerid[id], 0);
                 }else{ 
+                	//No packet still in flight
                     disarm_timer(timerid[id]);
                     timeout_interval(&time_temp[id]);  
                 }
 
+                //Update the transmission window
                 refresh_window(wnd, i, &usable_wnd);
                 wnd_base[id] = wnd[0];
             }
@@ -421,15 +454,13 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
                 //printf("Received ACK #%lu.\n", pack->ack_num);
                 if (last_ack_rcvd != pack->ack_num) {
                         // New ack received
-                       //printf("\033[1;32mNew ack received.\033[0m\n"); //debug
-                        last_ack_rcvd = pack->ack_num; 
+                       	//printf("\033[1;32mNew ack received.\033[0m\n"); //debug
+                  		last_ack_rcvd = pack->ack_num; 
                     } else {
                         // Increase acks counter
                         acks_count++;
                         if (acks_count == 3) {
                             // Fast retransmission
-                            printf("\rFAST RETRANSMISSION\r");
-                            fflush(stdout);
                             disarm_timer(timerid[id]);
                             retransmission(&timerid[id], true, id);
                         }
@@ -451,14 +482,16 @@ int request_put(int id, char *filename, unsigned long send_next, unsigned long r
             refresh_window(wnd, i, &usable_wnd);
             wnd_base[id] = wnd[0];
         }
-
-
-    }
+	}
     
     free(sendline);
     free(pk);
     free(pack);
     fclose(fp);
+    fclose(log_d);
+
+    printf("Done uploaing %s\n", filename);
+
     return 0;
 }
 
@@ -493,7 +526,7 @@ void* thread_function(void* arg){
 
     /** 3-WAY HANDSHAKE **/
     handshake(pk, &send_next, &rcv_next, sockfd[thread], &servaddr, addrlen, &time_temp[thread], timerid[thread]);
-    printf("Connection open\n");
+    //printf("Connection open\n");
     
     //Retrieve request
     tok = strtok(NULL, " \n");
@@ -567,9 +600,6 @@ void* thread_function(void* arg){
 
         demolition(send_next, rcv_next, sockfd[thread], &servaddr, addrlen, &time_temp[thread], timerid[thread]);
         printf("Connection closed\n");
-
-        printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
-
         pthread_exit(0);      
     }
 }
@@ -629,12 +659,11 @@ int main(int argc, char* argv[])
         }
     }
 
-
-    printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
-
     //Read from socket until EOF is found   
     while (1) {
-        scanf("%d", &oper);
+    	printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
+
+        while(scanf("%d", &oper) != 1);
         while(getchar()!='\n');
 
         switch(oper){
@@ -670,7 +699,7 @@ int main(int argc, char* argv[])
                     exit(-1);
                 }   
                 num_threads++;
-                printf("thread #%ld created.\n", tid[num_threads]);  //debug
+                //printf("thread #%ld created.\n", tid[num_threads]);  //debug
                 break;
 
             case 3:
@@ -690,7 +719,7 @@ int main(int argc, char* argv[])
                     exit(-1);
                 }
                 num_threads++;
-                printf("thread #%ld created.\n", tid[num_threads]); //debug
+                //printf("thread #%ld created.\n", tid[num_threads]); //debug
                 break;
 
             case 0:
@@ -732,8 +761,10 @@ int main(int argc, char* argv[])
                     break;
                 }
             }
-            printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
-        } 
+            //printf("\n\n\033[0;34mChoose an operation:\n1. List\n2. Get\n3. Put\n0. Quit\n\n\033[0m");
+        }
+
+
     }
     
     for(i=0; i<MAX_CONC_REQ; i++){

@@ -36,25 +36,13 @@ unsigned long rand_lim(int limit) {
 }
 
 
-void print_progress(double percentage) {
-    int val = (int) (percentage * 100);
-    int lpad = (int) (percentage * PBWIDTH);
+void print_progress(double percentage, FILE* des) {
+    int val = (int) (percentage * 100);             
+    int lpad = (int) (percentage * PBWIDTH);        
     int rpad = PBWIDTH - lpad;
-    printf("\033[1;34m\r%3d%% [%.*s%*s]\033[0m", val, lpad, PBSTR, rpad, "");
-    fflush(stdout);
-    printf("\r");
-}
+    char buff[MAXLINE];
 
+    sprintf(buff, "\033[1;34m%3d%% [%.*s%*s]\033[0m\r", val, lpad, PBSTR, rpad, "");
 
-void open_shell() {
-    /*Spawn a child to run the program.*/
-    pid_t pid=fork();
-    if (pid==0) { /* child process */
-        static char *argv[]={"echo","Foo is my name",NULL};
-        execv("/bin/echo",argv);
-        exit(127); /* only if execv fails */
-    }
-    else { /* pid!=0; parent process */
-        waitpid(pid,0,0); /* wait for child to exit */
-    }
+    fwrite(buff, 1, strlen(buff), des);
 }
