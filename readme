@@ -1,0 +1,4 @@
+-"client thread ack" contiene il codice del client con un thread apposito per put che riceve gli ack e aggiorna la finestra
+-Ho usato l'API per la GUI ma ancora devo capire come aprire una finestra a parte, quindi per ora blocca il terminale
+-A volte va in segmentation fault alla fine, a volte no. Credo sia colpa della gestione della finestra a sto punto, perché a volte ci va dopo aver terminato put, altre volte prima. Boh
+-I video glitchano comunque e io voglio morì
