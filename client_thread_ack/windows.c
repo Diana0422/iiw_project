@@ -202,21 +202,25 @@ void incoming_ack(unsigned long ack_num, int* num_dup, unsigned long* last_recei
         *last_received = ack_num;
         *num_dup = 0;
 
-        if(i != 0){
-		    refresh_window(base, i, free_space);
-		    if(base == NULL){           
-		        (timer->to).end = ack_to.end;
-		        timeout_interval(&(timer->to));
-			}
-		}
-
     } else {
     	//Duplicated ACK
         *num_dup += 1;
         //Check for the number of duplicates
         if (*num_dup == 3) {
-            *num_dup = 0;   
+            *num_dup = 0; 
+            disarm_timer(timer->timerid);  
             retransmission(&(timer->timerid));
         }
-    }  
+    } 
+
+    if(i != 0){
+    	disarm_timer(timer->timerid);  
+	    refresh_window(base, i, free_space);
+	    if(base[0] != NULL){           
+	        arm_timer(timer, 0);
+		}else{
+			(timer->to).end = ack_to.end;
+	        timeout_interval(&(timer->to));
+		}
+	} 
 }

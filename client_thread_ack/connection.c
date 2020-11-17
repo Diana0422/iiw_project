@@ -44,7 +44,7 @@ void handshake(Packet* pk, unsigned long* init_seq, unsigned long* init_ack, int
     }
 }
 
-void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Timer_node* timer){
+void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct sockaddr_in* servaddr, socklen_t addrlen, Packet_node* base, Timer_node* timer){
   
     Packet *pk = (Packet*)malloc(sizeof(Packet));
     if(pk == NULL){
@@ -55,17 +55,17 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
     pk = create_packet(sequence, ack, 0, NULL, FIN);
 
     //Send FIN packet to close the connection     
-    //printf("Client sends FIN packet.\n");  
+    printf("Client sends FIN packet.\n");  
     while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, &(timer->to)) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;
         }
     }
-
+    base->pk = pk;
     arm_timer(timer, 0);
 
     //Wait for confirmation
-    //printf("Client waiting for FINACK packet.\n");
+    printf("Client waiting for FINACK packet.\n");
     while (recv_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, &(timer->to)) != -1) {        
         if(pk->type != FINACK){
             continue;
@@ -80,7 +80,7 @@ void demolition(unsigned long sequence, unsigned long ack, int sockfd, struct so
 
     pk = create_packet(sequence, ack, 0, NULL, ACK);    
 
-    //printf("Client terminates connection, sending the last ACK.\n");     
+    printf("Client terminates connection, sending the last ACK.\n");     
     while (send_packet(pk, sockfd, (struct sockaddr*)servaddr, addrlen, &(timer->to)) == -1) {
         if(check_failure("\033[0;31mError: couldn't contact server.\033[0m\n")){
             continue;

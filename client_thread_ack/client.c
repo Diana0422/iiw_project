@@ -20,6 +20,8 @@ Timer_node* timer_head;
 Packet_node* wnd_head;
 Socket_node* sock_head;
 
+bool escape;
+
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
  RETRANSMISSION
@@ -74,7 +76,7 @@ void* ack_thread(void* arg){
     //End
 
     strcpy(cmd, (char*)arg);
-    //Retrieve socket
+    //Retrieve exit flag
     tok = strtok(cmd, " \n");
     sscanf(tok, "%d", &sock);
     //Retrieve window base
@@ -98,27 +100,26 @@ void* ack_thread(void* arg){
         perror("malloc failed");
         exit(-1);
     }
+    memset(pk_rcv, 0, sizeof(Packet));
 
-    while(1) {
-        memset(pk_rcv, 0, sizeof(Packet));
-    
+    while(!escape){
         //Receive ack for the client
-        if (recv_packet(pk_rcv, sock, (struct sockaddr*)&servaddr, addrlen, &ack_to) == -1) {
-            fprintf(stderr, "Error: couldn't receive packet.\n");
-            free(pk_rcv);
-            exit(EXIT_FAILURE);
-        }else{
-            if(pk_rcv->type == ACK){ 
-            	disarm_timer(timer->timerid);
-                pthread_mutex_lock(mux);
-                incoming_ack(pk_rcv->ack_num, &acks, &last_ack, wnd, usable, ack_to, timer); 
-                //printf("Usable ref = %d\n", *usable); 
-                base->pk = wnd[0];  
-                pthread_mutex_unlock(mux);  
-                arm_timer(timer, 0);         
-            }
-        }                                                                    
+		if(try_recv_packet(pk_rcv, sock, (struct sockaddr*)&servaddr, addrlen, &ack_to) == -1){
+			/*free(pk_rcv);
+            failure("Error: couldn't receive packet.");*/
+            continue;
+		}else{
+			if(pk_rcv->type == ACK){ 
+		        pthread_mutex_lock(mux);
+		        incoming_ack(pk_rcv->ack_num, &acks, &last_ack, wnd, usable, ack_to, timer); 
+		        base->pk = wnd[0];  
+		        pthread_mutex_unlock(mux);        
+		    } 
+		}
+        
+	    memset(pk_rcv, 0, sizeof(Packet));                                                                  
     }
+
 
     free(pk_rcv);
     pthread_exit(0);
@@ -361,13 +362,14 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
     char* sendline;
     Packet *pk, *pack;
     Packet* wnd[INIT_WND_SIZE] = {NULL};
-    int done; 
+    int done, size; 
     pthread_t acktid;
     pthread_mutex_t wnd_mux;
     char buff[MAXLINE];
     /**END**/
 
     printf("Uploading %s\n", filename);
+    escape = false;
 
     /***TEMPORARY USE OF A WINDOW INSTEAD OF A TERMINAL***/
     initscr();
@@ -375,14 +377,12 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
     wrefresh(win);
     endwin();
 
-    pthread_mutex_init(&wnd_mux, 0);
-
-    sprintf(buff, "%d %p %p %p %p %p\n", sock, &usable_wnd, wnd, base, &wnd_mux, timer);
-
-    if(pthread_create(&acktid, 0, ack_thread, (void*)buff)){
-        fprintf(stderr, "pthread_create() failed");
+    //Allocate space
+    if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
+        perror("Malloc() failed.");
         exit(-1);
     }
+    memset(sendline, 0, MAX_DGRAM_SIZE);
 
     //Open file
     fp = fopen(filename, "rb");
@@ -391,26 +391,57 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
         return 1;
     }
 
-    //Get file size to print progress
+    //Get file size
     fseek(fp, 0, SEEK_END);
-    int size = ftell(fp);
+    size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     
-    //Allocate space
-    if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
-        perror("Malloc() failed.");
-        exit(-1);
+    //Send file size
+    sprintf(sendline, "%d", size);
+    pk = create_packet(send_next, rcv_next, strlen(sendline), sendline, DATA);    
+    if (send_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) == -1) {
+        fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
+        free(pk);
+        pthread_exit((void*)-1);
     }
-    memset(sendline, 0, MAX_DGRAM_SIZE);
+    send_next += (unsigned long)pk->data_size;
+    base->pk = pk;
+    usable_wnd--;
+    arm_timer(timer, 0);
 
     pack = (Packet*)malloc(sizeof(Packet));
-    if (pack == NULL) {
-        fprintf(stderr, "Error: couldn't malloc packet.\n");
-        return 0;
+    if(pack == NULL){
+        perror("malloc failed");
+        exit(-1);
+    }
+
+    //Wait for the ACK
+    while(1){
+        if(recv_packet(pack, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) == -1) {
+            failure("Error: couldn't receive ack.");
+        } else {            
+            if ((pack->type == ACK) && (pack->ack_num == send_next)) {
+                disarm_timer(timer->timerid);
+                usable_wnd++;
+                break;                  
+            }
+        }
+    }        
+    free(pack);
+    //Compute the timeout interval for exchange: SIZE, ACK
+    timeout_interval(&(timer->to));
+    memset(sendline, 0, MAX_DGRAM_SIZE);
+
+    pthread_mutex_init(&wnd_mux, 0);
+    //Spawn thread for ack reception
+    sprintf(buff, "%d %p %p %p %p %p\n", sock, &usable_wnd, wnd, base, &wnd_mux, timer);
+    if(pthread_create(&acktid, 0, ack_thread, (void*)buff)){
+        fprintf(stderr, "pthread_create() failed");
+        exit(-1);
     }
   
     //Send the file to the server
-    while(!feof(fp)) {       
+    while((!feof(fp)) && (done != size)) {       
           
         read_size = fread(sendline, 1, PAYLOAD, fp);
         pk = create_packet(send_next, rcv_next, read_size, sendline, DATA);    
@@ -429,10 +460,8 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
 
         pthread_mutex_lock(&wnd_mux);
         update_window(pk, wnd, &usable_wnd);
-        //printf("Usable upd = %d\n", usable_wnd);
-        base->pk = wnd[0];
-        //If it's the the only packet in the window, start timer
         if(usable_wnd == INIT_WND_SIZE-1){
+        	base->pk = wnd[0];
             arm_timer(timer, 0);
         }
         pthread_mutex_unlock(&wnd_mux);
@@ -445,23 +474,22 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
         memset(sendline, 0, MAX_DGRAM_SIZE);
     }
 
-    //Transmit the ending packet
-    pk = create_packet(send_next, rcv_next, 0, NULL, DATA);
-    if (send_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) == -1) {
-        fprintf(stderr, "Error: couldn't send the filename.\n");
-        return 1;
-    }
-
     //Wait until every packet is correctly received
     while(usable_wnd != INIT_WND_SIZE){
     	sleep(1);
     }
-    
-    pthread_cancel(acktid);
+    disarm_timer(timer->timerid);
+
+    escape = true;
+    if(pthread_join(acktid, NULL)){
+        fprintf(stderr, "pthread_join() failed");
+        exit(-1);
+    }
+
+
 
     free(sendline);
     free(pk);
-    free(pack);
     fclose(fp);
 
     printf("Done uploading %s\n", filename);
@@ -580,7 +608,7 @@ void* thread_function(void* arg){
         pthread_exit((void*)-1);
 
     } else { 
-        demolition(send_next, rcv_next, sock, &servaddr, addrlen, timer);
+        demolition(send_next, rcv_next, sock, &servaddr, addrlen, trans_base, timer);
         printf("Connection closed\n");
         pthread_exit(0);      
     }
