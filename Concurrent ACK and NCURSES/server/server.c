@@ -85,7 +85,7 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void response_list(int sd, int thread, Client* cli_info)
+void response_list(int sd, Client* cli_info)
 {
     /**VARIABLE DEFINITIONS**/
     struct sockaddr_in addr = cli_info->addr;     //Client address
@@ -96,6 +96,7 @@ void response_list(int sd, int thread, Client* cli_info)
     char* buff;
     int payld = 0;    //Used to insert as much filenames as possibile into one packet (Transmission efficiency)
     unsigned long send_next = cli_info->pack->ack_num;
+    int thread = cli_info->server;
     /**END**/
 
     rcv_next[thread] = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
@@ -197,30 +198,66 @@ void response_list(int sd, int thread, Client* cli_info)
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
 
-void response_get(int sd, int thread, char* filename, Client* cli_info)
+void response_get(int sd, char* filename, Client* cli_info)
 {
     /**VARIABLE DEFINITIONS**/
-    struct sockaddr_in addr = cli_info->addr;     //Client address
+    struct sockaddr_in addr = cli_info->addr;
     socklen_t addrlen = sizeof(addr);
-
     char *sendline;
-
     FILE *fp;
     char path[strlen("files/")+strlen(filename)];
     ssize_t read_size;
-
     unsigned long send_next = cli_info->pack->ack_num;
-
     Packet *pk;
-
     int size;
+
+    int thread = cli_info->server;
     /**END**/
+
     //printf("THREAD WORKING: thread #%d\n", thread);
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1;    
     usable_wnd[thread] = INIT_WND_SIZE;   
 
     //printf("response_get started.\n\n");
+
+    //Try to open the file and check if it exists
+    memset(path, 0, strlen(path));
+    strcat(path, "files/");
+    strcat(path, filename);
+    
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        if(errno == ENOENT){
+            sendline = "The file does not exist.";
+            printf("%s\n", sendline);
+            pk = create_packet(send_next, rcv_next[thread], strlen(sendline), sendline, ERROR);     
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1){
+                free(pk);
+                fprintf(stderr, "Error: couldn't send data.\n");
+                return;
+            }
+            send_next += (unsigned long)pk->data_size;
+
+            pthread_mutex_lock(&wnd_lock[thread]);
+            update_window(pk, wnd, thread, &usable_wnd[thread]);       
+            pthread_mutex_unlock(&wnd_lock[thread]);
+
+            arm_timer(&to[thread], timerid[thread], 0);
+
+            //Wait for the ACK
+            while(usable_wnd[thread] != INIT_WND_SIZE){
+                sleep(1);
+            }
+
+            return;
+
+        }else{
+            fprintf(stderr, "Error: couldn't open %s.", filename);
+            return;
+        }
+        
+    }
 
     //Send ACK for the request packet
     if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
@@ -264,6 +301,8 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
     pthread_mutex_lock(&wnd_lock[thread]);
     update_window(pk, wnd, thread, &usable_wnd[thread]);       
     pthread_mutex_unlock(&wnd_lock[thread]);
+
+    arm_timer(&to[thread], timerid[thread], 0);
 
     //Wait for the ACK
     while(usable_wnd[thread] != INIT_WND_SIZE){
@@ -327,17 +366,24 @@ void response_get(int sd, int thread, char* filename, Client* cli_info)
  */
 
 
-void response_put(int sd, int thread, char* filename, Client* cli_info)
+void response_put(int sd, char* filename, Client* cli_info)
 {
     /**VARIABLE DEFINITIONS**/
+
+    //ADDRESS
     struct sockaddr_in addr = cli_info->addr;     
-    socklen_t addrlen = sizeof(addr);      
+    socklen_t addrlen = sizeof(addr);  
+
+    //FILE    
     FILE *fp;                                       
     char path[strlen("files/")+strlen(filename)];                                       
     ssize_t write_size = 0;
     int i, j, size;
+
+    //RECEPTION
     unsigned long send_next = cli_info->pack->ack_num;
-    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};      
+    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};    
+    int thread = cli_info->server;  
     /**END**/
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1; 
@@ -351,6 +397,7 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     memset(path, 0, strlen(path));
     strcat(path, "files/");
     strcat(path, filename);
+
     fp = fopen(path, "wb+");
     if (fp == NULL) {
         perror("fopen() failed");
@@ -360,11 +407,11 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     //Receive file size
     while(1){
         pthread_mutex_lock(&mux_avb[thread]);
-        //PACKET IN ORDER
+        
         if(cli_info->pack->seq_num == rcv_next[thread]){
             sscanf(cli_info->pack->data, "%d", &size);
-            printf("RECEIVED SIZE = %d\n", size);
             rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
+
             //Send ACK
             if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
                 return;
@@ -379,9 +426,9 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
     /* Receive data in chunks of 65000 bytes */
     while(write_size != size){
         pthread_mutex_lock(&mux_avb[thread]);
-        //PACKET IN ORDER
+  
         if(cli_info->pack->seq_num == rcv_next[thread]){
-            //Convert byte array to file
+            //PACKET IN ORDER
             write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
             rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
 
@@ -438,16 +485,21 @@ void response_put(int sd, int thread, char* filename, Client* cli_info)
 void* thread_service(void* arg){
 
     /**VARIABLE DEFINITIONS**/
-	struct sembuf oper;         //Access to client semaphore: set to fetch 1 token when possible.
+
+    //PARAMETER
+    int id = *((int*)arg);
+
+    //SERVICE
+	struct sembuf oper;         
+	Client* recipient;          
+	char* cmd, *filename;       
+
+    /**END**/
+
+    //Semaphore's fixed settings
     oper.sem_num = 0;
     oper.sem_op = -1;
     oper.sem_flg = 0;
-
-	Client* recipient;          //Variable filled by the client's informations, everytime a client is acquired
-	char* cmd, *filename;       //Used to distinguish requests and files
- 
-	int id = *((int*)arg);      //Thread ID: used to assign a client to a working thread
-    /**END**/
     
 	while(1){
 
@@ -477,7 +529,7 @@ void* thread_service(void* arg){
 	    //SERVE THE CLIENT
 	    if (strcmp(cmd, "list") == 0) {
 	        //Respond to LIST
-	        response_list(listensd, id, recipient); 
+	        response_list(listensd, recipient); 
 
 	    } else if (strcmp(cmd, "get") == 0) {
 	        //Respond to GET
@@ -486,7 +538,7 @@ void* thread_service(void* arg){
 	        }
 
 	        filename = strdup(cmd);
-	        response_get(listensd, id, filename, recipient);
+	        response_get(listensd, filename, recipient);
 
 	    } else if (strcmp(cmd, "put") == 0) {
 	        //Respond to PUT
@@ -494,7 +546,7 @@ void* thread_service(void* arg){
 	        	continue;
 	        } 
 	        filename = strdup(cmd);
-	        response_put(listensd, id, filename, recipient);
+	        response_put(listensd, filename, recipient);
 
 	    } else {
 	        fprintf(stderr, "Error: couldn't retrieve the request.\n");
@@ -506,23 +558,36 @@ void* thread_service(void* arg){
 
 int main(void)
 {
-     /**VARIABLE DEFINITIONS**/
+    /**VARIABLE DEFINITIONS**/
+
+    //CONCURRENCY
+    key_t ksem_client = 324;    
+    struct sembuf ops;          
+    
+    //ADDRESSES
     struct sockaddr_in cliaddr;
     struct sockaddr_in servaddr;
     socklen_t cliaddrlen = sizeof(cliaddr);
     socklen_t servaddrlen = sizeof(servaddr);
+
+    //TIMER SIGNAL
     Timeout time_temp;		
     struct sigevent sev;
     timer_t main_timerid;   
     struct sigaction sa;
-    key_t ksem_client = 324;    
-    struct sembuf ops;          
-    pthread_t tid[THREAD_POOL];              
+            
+    //THREAD POOL   
+    pthread_t tid[THREAD_POOL];   
     int thread, i; 
-    unsigned long init_seq;     
+    int* indexes;
+
+    //HANDSHAKE
+    Packet* pk_hds = NULL;
+    unsigned long init_seq;  
+
+    //RECEPTION
     Packet* pk_rcv;      
-    Packet* pk_hds = NULL;             
-    int* indexes;    
+
     /**END**/
 
     /**INITIALIZAZION OF THE STRUCTURES**/
@@ -633,13 +698,10 @@ int main(void)
             exit(EXIT_FAILURE);
 
         } else {
-            //If the packet carries a request for a new connection, enstablish a connection
             if (pk_rcv->type == SYN) {
-                //printf("\033[0;34mReceived a new connection request.\033[0m\n");
-                //3-WAY HANDSHAKE
+                //Received a new connection request
                 if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp, main_timerid) == -1){
                     fprintf(stderr, "\033[0;31mConnection failure.\033[0m\n");
-                    printf("\033[0;34mWaiting for a request...\033[0m\n");
                     continue;
 
                 }else{
@@ -662,58 +724,45 @@ int main(void)
                 }
 
             }else{
-                //Find out who's serving the client: to signal a new packet to the thread
-                //printf("GOING IN DISPATCH.\n");
+                //New packet from a queued client
                 dispatch_client(cliaddr_head, cliaddr, &thread);
-                //printf("EXITING DISPATCH.\n");
 
-                //printf("GOING IN ACK HANDLING.\n");
                 if(pk_rcv->type == ACK){
                     
-                    //printf("Thread %d received ACK #%lu.\n", thread, pk_rcv->ack_num);
+                    //New ACK received
                     pthread_mutex_lock(&wnd_lock[thread]);
-                    //printf("GOING IN INCOMING ACK.\n");
                     incoming_ack(thread, cliaddr_head, pk_rcv, wnd, &usable_wnd[thread], time_temp, timerid[thread], &to[thread]);
-                    //printf("EXITING INCOMING ACK.\n");
                     pthread_mutex_unlock(&wnd_lock[thread]);
 
-                //printf("GOING IN CONNECTION FIN.\n");
                 }else if(pk_rcv->type == FIN){
-                //printf("\033[0;34mReceived a request for connection demolition.\033[0m\n");
-                
-                    //3-WAY HANDSHAKE
-                    //printf("GOING IN DEMOLITION.\n");
+                    //Received a request for connection demolition
                     if(demolition(listensd, &cliaddr, cliaddrlen, &time_temp, timerid[thread]) == -1){
                         fprintf(stderr, "\033[0;31mDemolition failure.\033[0m\n");
-                        printf("\033[0;34mWaiting for a request...\033[0m\n");
-                        continue;
-                    //printf("EXITING DEMOLITION.\n");    
+                        continue; 
                     }else{
                         printf("Connection closed.\n");
 
-                        //Add new client address to the list
+                        //Remove client from the list
                         pthread_mutex_lock(&list_mux);
-                        //printf("GOING IN REMOVE CLIENT.\n");
                         remove_client(&cliaddr_head, cliaddr);
-                        //printf("EXITING REMOVE CLIENT.\n");
                         pthread_mutex_unlock(&list_mux);
                     }
+
+                    printf("\033[0;34mWaiting for a request...\033[0m\n");
                 }else{
+                    //New DATA packet
                     pthread_mutex_lock(&mux_free[thread]);                
-                    //Update the new packet in the client node so that the thread can fetch new data
-                    //printf("GOING IN UPDATE PACKET.\n");
                     update_packet(cliaddr_head, thread, pk_rcv, time_temp);
-                    //printf("EXITITNG UPDATE PACKET.\n");
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }
             }   
         }
+
         pk_rcv = (Packet*)malloc(sizeof(Packet));
         if (pk_rcv == NULL) {
             fprintf(stderr, "Error: couldn't malloc packet.\n");
             exit(EXIT_FAILURE);
-        }
-        printf("\033[0;34mWaiting for a request...\033[0m\n");                                                                           
+        }                                                                       
     }
     
     free(pk_rcv);

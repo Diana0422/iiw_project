@@ -20,8 +20,6 @@ Timer_node* timer_head;
 Packet_node* wnd_head;
 Socket_node* sock_head;
 
-bool escape;
-
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
  RETRANSMISSION
@@ -60,7 +58,9 @@ void retransmission(timer_t* ptr){
 
 void* ack_thread(void* arg){
 
-    //Variables
+    /**VARIABLE DEFINITIONS**/
+
+    //PARAMETERS
     char* tok;
     char cmd[MAXLINE];
     int sock;
@@ -68,17 +68,23 @@ void* ack_thread(void* arg){
     Packet** wnd;
     Packet_node* base;
     short* usable;
+    pthread_mutex_t* mux;
+
+    //ACK RECEPTION
     Packet* pk_rcv;
     int acks = 0;
     unsigned long last_ack = 0;
-    Timeout ack_to;
-    pthread_mutex_t* mux;
-    //End
+    unsigned long done;
+    Timeout ack_to;  
+    /**END**/
 
     strcpy(cmd, (char*)arg);
-    //Retrieve exit flag
+    //Retrieve socket
     tok = strtok(cmd, " \n");
     sscanf(tok, "%d", &sock);
+    //Retrieve last ack expected
+    tok = strtok(NULL, " \n");
+    sscanf(tok, "%lu", &done);
     //Retrieve window base
     tok = strtok(NULL, " \n");
     sscanf(tok, "%p", &usable);
@@ -102,25 +108,23 @@ void* ack_thread(void* arg){
     }
     memset(pk_rcv, 0, sizeof(Packet));
 
-    while(!escape){
-        //Receive ack for the client
-		if(try_recv_packet(pk_rcv, sock, (struct sockaddr*)&servaddr, addrlen, &ack_to) == -1){
-			/*free(pk_rcv);
-            failure("Error: couldn't receive packet.");*/
-            continue;
+    //Receive ack for the client
+    while(pk_rcv->ack_num < done){
+		if(recv_packet(pk_rcv, sock, (struct sockaddr*)&servaddr, addrlen, &ack_to) == -1){
+			free(pk_rcv);
+            failure("Error: couldn't receive packet.");
 		}else{
 			if(pk_rcv->type == ACK){ 
 		        pthread_mutex_lock(mux);
 		        incoming_ack(pk_rcv->ack_num, &acks, &last_ack, wnd, usable, ack_to, timer); 
 		        base->pk = wnd[0];  
-		        pthread_mutex_unlock(mux);        
-		    } 
+		        pthread_mutex_unlock(mux);     
+		   	}
 		}
         
-	    memset(pk_rcv, 0, sizeof(Packet));                                                                  
+	    //memset(pk_rcv, 0, sizeof(Packet));  
     }
-
-
+                                                                      
     free(pk_rcv);
     pthread_exit(0);
 }
@@ -380,23 +384,31 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
  --------------------------------------------------------------------------------------------------------------------------------
  */
 
-int request_put(int sock, char *filename, unsigned long send_next, unsigned long rcv_next, short usable_wnd, Packet_node* base, Timer_node* timer)
+int request_put(int sock, char* filename, unsigned long send_next, unsigned long rcv_next, Packet_node* base, Timer_node* timer)
 {
     /**VARIABLE DEFINITIONS**/
-    FILE *fp;
-    ssize_t read_size;
-    char* sendline;
-    Packet *pk, *pack;
+
+    //TRANSMISSION
+    Packet* pk;
     Packet* wnd[INIT_WND_SIZE] = {NULL};
+    short usable_wnd = INIT_WND_SIZE;
+
+    //PROGRESS
+    double percent;
     int size, done = 0; 
+
+    //READ
+    FILE* fp;
+    char* sendline;
+    ssize_t read_size;
+
+    //ACK RECEPTION
+    Packet* pack;
     pthread_t acktid;
     pthread_mutex_t wnd_mux;
-    char buff[MAXLINE];
-    double percent;
+    char buff[MAXLINE]; 
+    unsigned long last_ack; 
     /**END**/
-
-    printf("Uploading %s\n", filename);
-    escape = false;
   
     //Allocate space
     if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
@@ -416,6 +428,8 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
     fseek(fp, 0, SEEK_END);
     size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
+
+    last_ack = size;
     
     //Send file size
     sprintf(sendline, "%d", size);
@@ -423,7 +437,7 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
     if (send_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) == -1) {
         fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
         free(pk);
-        pthread_exit((void*)-1);
+        return 1;
     }
     send_next += (unsigned long)pk->data_size;
     base->pk = pk;
@@ -449,13 +463,15 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
         }
     }        
     free(pack);
+
     //Compute the timeout interval for exchange: SIZE, ACK
     timeout_interval(&(timer->to));
     memset(sendline, 0, MAX_DGRAM_SIZE);
 
     pthread_mutex_init(&wnd_mux, 0);
+    last_ack += send_next;
     //Spawn thread for ack reception
-    sprintf(buff, "%d %p %p %p %p %p\n", sock, &usable_wnd, wnd, base, &wnd_mux, timer);
+    sprintf(buff, "%d %lu %p %p %p %p %p\n", sock, last_ack, &usable_wnd, wnd, base, &wnd_mux, timer);
     if(pthread_create(&acktid, 0, ack_thread, (void*)buff)){
         fprintf(stderr, "pthread_create() failed");
         exit(-1);
@@ -479,6 +495,7 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
         percent = (double)done/size;        
         print_progress(percent);
 
+        //Update transmission
         pthread_mutex_lock(&wnd_mux);
         update_window(pk, wnd, &usable_wnd);
         if(usable_wnd == INIT_WND_SIZE-1){
@@ -496,18 +513,10 @@ int request_put(int sock, char *filename, unsigned long send_next, unsigned long
     }
 
     //Wait until every packet is correctly received
-    while(usable_wnd != INIT_WND_SIZE){
-    	sleep(1);
-    }
-    disarm_timer(timer->timerid);
-
-    escape = true;
     if(pthread_join(acktid, NULL)){
         fprintf(stderr, "pthread_join() failed");
         exit(-1);
     }
-
-
 
     free(sendline);
     free(pk);
@@ -536,8 +545,7 @@ void* thread_function(void* arg){
     int res, thread, sock;
     Packet *pk = NULL;
     Packet_node* trans_base;
-    Timer_node* timer;
-    short usable_wnd = INIT_WND_SIZE; //The amount of packets that can be sent 
+    Timer_node* timer; 
     /**END**/
 
     strcpy(cmd, (char*)arg);
@@ -560,7 +568,7 @@ void* thread_function(void* arg){
 
     /** 3-WAY HANDSHAKE **/
     handshake(pk, &send_next, &rcv_next, sock, &servaddr, addrlen, timer);
-    //printf("Connection opened\n");
+    printf("Connection opened\n");
     
     //Retrieve request
     tok = strtok(NULL, " \n");
@@ -577,6 +585,8 @@ void* thread_function(void* arg){
     strcat(cmd, " ");
     strcat(cmd, filename);
 
+    printf("Sending request: %s\n", cmd);
+
     //Send request
     pk = create_packet(send_next, rcv_next, strlen(cmd), cmd, DATA);    
     if (send_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) == -1) {
@@ -585,21 +595,30 @@ void* thread_function(void* arg){
         pthread_exit((void*)-1);
     }
     send_next += (unsigned long)pk->data_size + 1;
-
     trans_base->pk = pk;
-    usable_wnd--;
-
     arm_timer(timer, 0);
 
     //Wait for the ACK related to the request
     while(1){
         if(recv_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) == -1) {
             failure("Error: couldn't receive ack.");
-        } else {            
+        } else {          
             if ((pk->type == ACK) && (pk->ack_num == send_next)) {
-                disarm_timer(timer->timerid);
-                usable_wnd++;
+            	disarm_timer(timer->timerid);
                 break;                  
+            }else if (pk->type == ERROR){
+            	disarm_timer(timer->timerid); 
+            	//Send ACK
+                if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                    failure("Error: couldn't send ack.");
+                }
+
+                printf("An error was encountered:\n\t\033[0;31m%s\033[0m\n", pk->data);
+                free(pk);
+
+                demolition(send_next, rcv_next, sock, &servaddr, addrlen, trans_base, timer);
+		        printf("Connection closed\n");
+		        pthread_exit(0);
             }
         }
     }        
@@ -618,7 +637,7 @@ void* thread_function(void* arg){
 
     } else if (strcmp(request, "put") == 0) {
         //Execute PUT
-        res = request_put(sock, filename, send_next, rcv_next, usable_wnd, trans_base, timer);
+        res = request_put(sock, filename, send_next, rcv_next, trans_base, timer);
 
     } else {
         failure("\033[0;31mError: couldn't retrieve input.\033[0m\n");
@@ -756,8 +775,7 @@ int main(int argc, char* argv[])
                 break;
 
             case 0:
-                //Wait for every active thread to end
-                
+                //Wait for every active thread to end        
                 while(num_threads && thread_head != NULL){                   
                     if(pthread_join(thread_head->tid, NULL)){
                         fprintf(stderr, "pthread_join() failed");

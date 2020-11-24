@@ -11,7 +11,7 @@
 
 #define PAYLOAD 65467
 
-typedef enum type {DATA, ACK, SYN, SYNACK, FIN, FINACK} packet_type;
+typedef enum type {DATA, ACK, SYN, SYNACK, FIN, FINACK, ERROR} packet_type;
 
 typedef struct message {
 	unsigned long seq_num;

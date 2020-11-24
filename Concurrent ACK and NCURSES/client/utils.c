@@ -54,15 +54,16 @@ void print_progress(double percentage) {
 
 
     sprintf(buff, "%3d%% [%.*s%*s]\r", val, lpad, PBSTR, rpad, "");
+
     if(val == 0){
-        FILE* src = fopen("/dev/tty", "w+");
-        FILE* dest = fopen("/dev/ptmx", "r+");
-        SCREEN* term = newterm(NULL, src, dest);
+        FILE* in = fopen("/dev/ptmx", "rw");
+        SCREEN* term = newterm(NULL, in, NULL);
         set_term(term);
     }
     
     refresh();
     printf("%s", buff); 
+
     if(val == 100){
         endwin();
     } 

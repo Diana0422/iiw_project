@@ -15,6 +15,16 @@ int failure(const char* msg){
 	exit(-1);
 }
 
+int loss_with_prob(int prob){
+    int random = rand();
+
+    if(!(random % prob)){
+        return 1;
+    }
+
+    return 0;
+}
+
 /* RAND_LIM 
  * @brief return a random number between 0 and limit inclusive.
  * @param limit: limit to the integer randomization

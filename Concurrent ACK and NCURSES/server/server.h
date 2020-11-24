@@ -28,10 +28,10 @@ typedef struct node{
 	struct sockaddr_in addr;   //Client's address: used for contact
 	Packet* pack;			   //Packet received from the client
 	int server;				   //ID of the thread serving the client
-	struct node* next;		   //Pointer to the next client in the list 
 	Timeout to_info;           // Timeout values structure
 	int ack_counter;
 	unsigned long last_ack_received;
+	struct node* next;		   //Pointer to the next client in the list 
 }Client;
 
 extern void insert_client(Client**, struct sockaddr_in, Packet*, Timeout);
@@ -44,10 +44,12 @@ extern void dispatch_client(Client*, struct sockaddr_in, int*);
 
 extern void update_packet(Client*, int, Packet*, Timeout);
 
-extern void incoming_ack(int, Client*, Packet*, Packet*(*)[INIT_WND_SIZE], short*, Timeout, timer_t, Timeout*);
-
 extern void print_list(Client*);
 
 extern unsigned long rand_lim(int);
+
+extern int loss_with_prob(int);
+
+extern void incoming_ack(int, Client*, Packet*, Packet*(*)[INIT_WND_SIZE], short*, Timeout, timer_t, Timeout*);
 
 #endif /* client_test_h */

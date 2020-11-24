@@ -1,5 +1,7 @@
 #include "server.h"
 
+#define LOSS_PROB 50
+
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
  * @param type: message type; seq_num: sequence number of the packet; size: data size; data: pointer to data buffer
@@ -115,13 +117,18 @@ Packet unserialize_packet(char* buffer)
 	gettimeofday(&t->start, NULL);
 
 	//printf("Sending packet #%lu\n", pkt->seq_num);  
- 	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, MSG_DONTWAIT, (struct sockaddr*)addr, addrlen)) == -1) {
-		if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-			return -1;
-		}
+	if(loss_with_prob(LOSS_PROB)){	
+		printf("PACKET LOSS\n");
+		n = 1;
+	}else{
+	 	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, MSG_DONTWAIT, (struct sockaddr*)addr, addrlen)) == -1) {
+			if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+				return -1;
+			}
 
-		fprintf(stderr, "\033[0;31mCouldn't send packet.\033[0m\n");
- 		return -1;
+			fprintf(stderr, "\033[0;31mCouldn't send packet.\033[0m\n");
+	 		return -1;
+		}
 	}
 	//printf("Packet #%lu correctly sent\n", pkt->seq_num);
     return n;
