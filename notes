@@ -1,4 +1,3 @@
--"client thread ack" contiene il codice del client con un thread apposito per put che riceve gli ack e aggiorna la finestra
--"server thread ack" contiene il codice del server da associare al "nuovo" client
--Ho usato l'API per la GUI ma ancora devo capire come aprire una finestra a parte, quindi per ora blocca il terminale
--I video glitchano comunque e io voglio morì
+- Bugged transmission of videos when using PUT
+- Occasional SEGFAULT: cannot see the cause of it
+- Need for a mechanism of connection termination when the other node crashes
