@@ -48,7 +48,7 @@ char* serialize_packet(Packet* packet)
 	}
 	memset(buffer, 0, MAX_DGRAM_SIZE);
 
-	//printf("packet %p\n", packet);
+	printf("serialize_packet: packet %p\n", packet);
 	
 	/*printf("seq_num %lu\n", packet->seq_num);
 	printf("ack_num %lu\n", packet->ack_num);
@@ -122,12 +122,14 @@ Packet unserialize_packet(char* buffer)
 
  	int n;
 
+	printf("send_packet: packet %p\n", pkt);
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
  	
 	gettimeofday(&t->start, NULL);
 	
 	if(loss_with_prob(LOSS_PROB)){	
 		n = 1;
+		printf("\033[0;31mPACKET LOSS.\033[0m\n");
 	}else{
 		if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
 	 		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
@@ -221,9 +223,11 @@ Packet unserialize_packet(char* buffer)
  * @param packet to print
  */
 
-/*void print_packet(Packet pk){
+void print_packet(Packet pk){
 	char type_str[7];
 	int type_int = (int)(pk.type);
+	char byte_str[50];
+	char buff[MAX_DGRAM_SIZE];
 
 	printf("--PACKET--\n");
 
@@ -248,11 +252,22 @@ Packet unserialize_packet(char* buffer)
 			break;
 	}
 
-	printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
+	//printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
+	
 	int i, count = 1;
+	for (i = 0; i < (int)pk.data_size; i++){
+		sscanf(byte_str, "%02X", pk.data[i]);
+		strcat(buff, byte_str);
+		memset(byte_str, 0, strlen(byte_str));
+	    count++;
+	}
+	
+	printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\nData: %02X\n", type_str, pk.seq_num, pk.ack_num, pk.data_size, buff);
+	printf("\n\n");
+
+	/*int i, count = 1;
 	for (i = 0; i < (int)pk.data_size; i++){
 	    printf("%d: %02X\n", count, pk.data[i]);
 	    count++;
-	}
-	printf("\n\n");
-}*/
+	}*/
+}

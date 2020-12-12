@@ -62,8 +62,9 @@ void timeout_handler(int sig, siginfo_t* si, void* uc){
 
 	timer_t* tmptr;		//Pointer to the timer that caused a timeout
 	tmptr = si->si_value.sival_ptr;
-
+	printf("retransmission due to timeout.\n");
 	retransmission(tmptr);
+	printf("retransmission completed.\n");
 }
 
 Timer_node* insert_timer(Timer_node** head){

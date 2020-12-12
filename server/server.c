@@ -22,9 +22,49 @@ int listensd;                                   //Listening socket descriptor: t
 Client *cliaddr_head;                           //Pointer to Client structure: head of the client list
 
 Packet* wnd[THREAD_POOL][INIT_WND_SIZE];        //Transmission windows for every thread
+unsigned long rtx_packs[THREAD_POOL];    //Lost packets ids
 
 timer_t timerid[THREAD_POOL];                   //Array of timer descriptors, assigned each one to a thread
 Timeout to[THREAD_POOL];                        //Timeout structures related to each thread 
+
+void update_packet(Client*, int, Packet*, Timeout);
+
+
+
+
+int is_first_lost(Packet* pk, int thread) {
+    if (pk->seq_num == rtx_packs[thread]) {
+        return 1;
+    }
+    return 0;
+}
+
+int is_lost(Packet* pk, int thread) {
+    for (int i=0; i<sizeof(rtx_packs[thread]); i++) {
+        if (pk->seq_num == rtx_packs[thread]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+int is_bufferized(unsigned long seq_num, Packet** buffer) {
+    int i=0;
+    while (buffer[i] != NULL) {
+        if (seq_num == buffer[i]->seq_num) {
+            printf("Packet is already in buffer.\n");
+            return 1;
+        }
+        i++;
+    }
+    printf("Packet is not already in buffer.\n");
+    return 0;
+}
+
+
+
+
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -68,7 +108,15 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
     //Fetch the packet to retransmit
     pk = wnd[id][0];
 
-    //printf("Retransmitting packet #%lu\n", pk->seq_num);
+    /* Print some log messages */
+    if (pk->type == ACK) {        
+        printf("Retransmitting packet #%lu...\n", pk->ack_num);
+    } else if (pk->type == DATA) {
+        printf("Retransmitting packet #%lu...\n", pk->seq_num);
+    }
+
+    printf("\033[1;32mPacket retransmitted:\033[0m\n");
+    print_packet(*pk);
     if (send_packet(pk, listensd, (struct sockaddr*)&address, addrlen, &to[id]) == -1) {
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
@@ -77,286 +125,6 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
     arm_timer(&to[id], timerid[id], 0);
 
     return;
-}
-
-/*
- -----------------------------------------------------------------------------------------------------------------------------------------------
- LIST OPERATION
- -----------------------------------------------------------------------------------------------------------------------------------------------
- */
-
-void response_list(int sd, Client* cli_info)
-{
-    /**VARIABLE DEFINITIONS**/
-    struct sockaddr_in addr = cli_info->addr;     //Client address
-    socklen_t addrlen = sizeof(addr); 
-    DIR* dirp;                                    
-    struct dirent* pdirent;
-    Packet *pk;
-    char* buff;
-    int payld = 0;    //Used to insert as much filenames as possibile into one packet (Transmission efficiency)
-    unsigned long send_next = cli_info->pack->ack_num;
-    int thread = cli_info->server;
-    /**END**/
-
-    rcv_next[thread] = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
-    usable_wnd[thread] = INIT_WND_SIZE;
-
-    //printf("response_list started.\n");
-    
-    //Send ACK
-    if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
-        return;
-    }
-
-    // Ensure we can open directory
-    dirp = opendir("files");
-    if (dirp == NULL) {
-        perror("Cannot open directory");
-        exit(-1);
-    }
-    
-    buff = (char*)malloc(PAYLOAD);
-    if(buff == NULL){
-        perror("Malloc failed.");
-        exit(EXIT_FAILURE);
-    }
-
-    //Process each entry in the directory
-    while((pdirent = readdir(dirp)) != NULL){
-        //Ignore the current and parent directory
-        if(!(strcmp(pdirent->d_name, ".") && strcmp(pdirent->d_name, ".."))){ 
-            continue;
-        }
-
-        strcat(buff, pdirent->d_name);
-        strcat(buff, "\n");
-        //Check if more data can be sent into one packet only
-        if((payld += strlen(buff)) > PAYLOAD){
-            //Send data packet with filenames
-            pk = create_packet(send_next, rcv_next[thread], strlen(buff), buff, DATA);
-            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
-                fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
-                return;
-            }
-            send_next += (unsigned long)pk->data_size;
-
-            pthread_mutex_lock(&wnd_lock[thread]);
-            update_window(pk, wnd, thread, &usable_wnd[thread]);
-            pthread_mutex_unlock(&wnd_lock[thread]);
-
-            //If it's the first packet to be transmitted, start timer
-            if(usable_wnd[thread] == INIT_WND_SIZE-1){
-            	arm_timer(&to[thread], timerid[thread], 0);
-            }
-
-            while(usable_wnd[thread] == 0){
-                //FULL WINDOW: wait for ACK until either it is received or the timer expires
-                sleep(1);
-            }
-
-            payld = 0;
-            memset(buff, 0, strlen(buff));
-        }       
-    }
-    
-    //Send last data packet with filenames (amount of data smaller than PAYLOAD)
-    pk = create_packet(send_next, rcv_next[thread], strlen(buff), buff, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
-        fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
-        return;
-    }
-    send_next += (int)pk->data_size;
-
-    pthread_mutex_lock(&wnd_lock[thread]);
-    update_window(pk, wnd, thread, &usable_wnd[thread]);
-    pthread_mutex_unlock(&wnd_lock[thread]);
-
-    //If it's the first packet to be transmitted, start timer
-    if(usable_wnd[thread] == INIT_WND_SIZE-1){
-        arm_timer(&to[thread], timerid[thread], 0);
-    } 
-
-    //Wait for ACK until every packet is correctly received
-    while(usable_wnd[thread] != INIT_WND_SIZE){
-        sleep(1);
-    }
-       
-    pk = create_packet(send_next, rcv_next[thread], 0, NULL, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
-    	fprintf(stderr, "Error: couldn't send the filename.\n");
-        return;
-    }
-
-    free(buff);
-    free(pk);
-}
-
-/*
- -----------------------------------------------------------------------------------------------------------------------------------------------
- GET OPERATION
- -----------------------------------------------------------------------------------------------------------------------------------------------
- */
-
-void response_get(int sd, char* filename, Client* cli_info)
-{
-    /**VARIABLE DEFINITIONS**/
-    struct sockaddr_in addr = cli_info->addr;
-    socklen_t addrlen = sizeof(addr);
-    char *sendline;
-    FILE *fp;
-    char path[strlen("files/")+strlen(filename)];
-    ssize_t read_size;
-    unsigned long send_next = cli_info->pack->ack_num;
-    Packet *pk;
-    int size;
-
-    int thread = cli_info->server;
-    /**END**/
-
-    //printf("THREAD WORKING: thread #%d\n", thread);
-
-    rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1;    
-    usable_wnd[thread] = INIT_WND_SIZE;   
-
-    //printf("response_get started.\n\n");
-
-    //Try to open the file and check if it exists
-    memset(path, 0, strlen(path));
-    strcat(path, "files/");
-    strcat(path, filename);
-    
-    fp = fopen(path, "rb");
-    if (fp == NULL) {
-        if(errno == ENOENT){
-            sendline = "The file does not exist.";
-            printf("%s\n", sendline);
-            pk = create_packet(send_next, rcv_next[thread], strlen(sendline), sendline, ERROR);     
-            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1){
-                free(pk);
-                fprintf(stderr, "Error: couldn't send data.\n");
-                return;
-            }
-            send_next += (unsigned long)pk->data_size;
-
-            pthread_mutex_lock(&wnd_lock[thread]);
-            update_window(pk, wnd, thread, &usable_wnd[thread]);       
-            pthread_mutex_unlock(&wnd_lock[thread]);
-
-            arm_timer(&to[thread], timerid[thread], 0);
-
-            //Wait for the ACK
-            while(usable_wnd[thread] != INIT_WND_SIZE){
-                sleep(1);
-            }
-
-            return;
-
-        }else{
-            fprintf(stderr, "Error: couldn't open %s.", filename);
-            return;
-        }
-        
-    }
-
-    //Send ACK for the request packet
-    if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
-        return;
-    }
-    
-    //Open the file
-    memset(path, 0, strlen(path));
-    strcat(path, "files/");
-    strcat(path, filename);
-    
-    fp = fopen(path, "rb");
-    if (fp == NULL) {
-        fprintf(stderr, "Error: couldn't open %s.", filename);
-        return;
-    }
-
-    //Allocate space
-    if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
-    	perror("Malloc() failed.");
-    	exit(-1);
-    }
-    memset(sendline, 0, MAX_DGRAM_SIZE);
-
-    //Get file size
-    fseek(fp, 0, SEEK_END);
-    size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    
-    //Send file size
-    sprintf(sendline, "%d", size);
-    pk = create_packet(send_next, rcv_next[thread], strlen(sendline), sendline, DATA);    
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
-        free(sendline);
-        free(pk);
-        fprintf(stderr, "Error: couldn't send data.\n");
-        return;
-    }
-    send_next += (unsigned long)pk->data_size;
-
-    pthread_mutex_lock(&wnd_lock[thread]);
-    update_window(pk, wnd, thread, &usable_wnd[thread]);       
-    pthread_mutex_unlock(&wnd_lock[thread]);
-
-    arm_timer(&to[thread], timerid[thread], 0);
-
-    //Wait for the ACK
-    while(usable_wnd[thread] != INIT_WND_SIZE){
-        sleep(1);
-    }
-  
-    //Send the file to the client
-    while(!feof(fp)) {       
-        //Read from the file and send data   
-        read_size = fread(sendline, 1, PAYLOAD, fp);
-        pk = create_packet(send_next, rcv_next[thread], read_size, sendline, DATA);     
-        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
-            free(sendline);
-            free(pk);
-            fprintf(stderr, "Error: couldn't send data.\n");
-            return;
-        }
-        send_next += (unsigned long)pk->data_size;
-
-        pthread_mutex_lock(&wnd_lock[thread]);
-        update_window(pk, wnd, thread, &usable_wnd[thread]);       
-        pthread_mutex_unlock(&wnd_lock[thread]);
-
-        //If it's the the only packet in the window, start timer
-        if(usable_wnd[thread] == INIT_WND_SIZE-1){
-            arm_timer(&to[thread], timerid[thread], 0);
-        }
-
-        while(usable_wnd[thread] == 0){
-            //FULL WINDOW: wait for ACK until either it is received or the timer expires
-            sleep(1);
-        }
-
-        memset(sendline, 0, MAX_DGRAM_SIZE);
-    }
-
-    pk = create_packet(send_next, rcv_next[thread], 0, NULL, DATA);
-    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
-        fprintf(stderr, "Error: couldn't send the filename.\n");
-        return;
-    }
-
-    pthread_mutex_lock(&wnd_lock[thread]);
-    update_window(pk, wnd, thread, &usable_wnd[thread]);    
-    pthread_mutex_unlock(&wnd_lock[thread]);
-
-    //Wait for ACK until every packet is correctly received
-    while(usable_wnd[thread] != INIT_WND_SIZE){
-        sleep(1);
-    }
-    
-    free(sendline);
-    free(pk);
-    fclose(fp);
 }
 
 /*
@@ -382,9 +150,12 @@ void response_put(int sd, char* filename, Client* cli_info)
 
     //RECEPTION
     unsigned long send_next = cli_info->pack->ack_num;
-    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};    
+    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};  
+    unsigned long lost_packets[MAX_RVWD_SIZE];  
     int thread = cli_info->server;  
+
     /**END**/
+    printf("response put.\n");
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1; 
 
@@ -425,40 +196,96 @@ void response_put(int sd, char* filename, Client* cli_info)
 
     /* Receive data in chunks of 65000 bytes */
     while(write_size != size){
+        printf("Receiving data...\n");
         pthread_mutex_lock(&mux_avb[thread]);
+        printf("Data received.\n");
   
         if(cli_info->pack->seq_num == rcv_next[thread]){
-            //PACKET IN ORDER
-            write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
-            rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
-
-            //Check if there are other buffered data to read
-            i=0;
-            j=0;
-            while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size)){
-                write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
-                rcv_next[thread] += (unsigned long)rcv_buffer[i]->data_size;
-                
-                memset(cli_info->pack, 0, sizeof(Packet));                    
-                memcpy(cli_info->pack, rcv_buffer[i], sizeof(Packet));                    
-                memset(&rcv_buffer[i], 0, sizeof(Packet*));
-                
-                i++;
-            }
-
-            //Reorder the buffer
-            if(i != 0){
-                while((i+j < MAX_RVWD_SIZE) && (rcv_buffer[i+j] != NULL)){
-                    rcv_buffer[j] = rcv_buffer[i+j];
-                    memset(&rcv_buffer[i+j], 0, sizeof(Packet*));
-                    j++;
+            //Check if transmission has ended.
+            if(cli_info->pack->data_size == 0){
+                //Data transmission completed: check if the receive buffer is empty
+                if(rcv_buffer[0] == NULL){
+                    printf("\rTransmission has completed successfully.\n");
+                    fflush(stdout);
+                    fclose(fp);
+                    return;
                 }
-            }            
+
+            } else {
+                //PACKET IN ORDER
+                printf("Packet in order.\n");
+                if (cli_info->rtx_pack->seq_num == rcv_next[thread]) {
+                    write_size += fwrite(cli_info->rtx_pack->data, 1, cli_info->rtx_pack->data_size, fp);
+
+                    printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", cli_info->pack->data_size, cli_info->pack->seq_num);
+                    printf("\033[0;35mPacket written on file:\033[0m\n");
+                    print_packet(*cli_info->rtx_pack);
+                    printf("\n\n");
+
+                    rcv_next[thread] += (unsigned long)cli_info->rtx_pack->data_size;
+
+                    //Check if there are other buffered data to read
+                    printf("Check if there are other buffered data to read");
+                    i=0;
+                    j=0;
+                    while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == cli_info->rtx_pack->seq_num + (unsigned long)cli_info->rtx_pack->data_size)){
+                        write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
+                        printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", rcv_buffer[i]->data_size, rcv_buffer[i]->seq_num);
+                        rcv_next[thread] += (unsigned long)rcv_buffer[i]->data_size;
+                
+                        memset(cli_info->rtx_pack, 0, sizeof(Packet));                    
+                        memcpy(cli_info->rtx_pack, rcv_buffer[i], sizeof(Packet));                    
+                        memset(&rcv_buffer[i], 0, sizeof(Packet*));
+                
+                        i++;
+                    }
+    
+                } else if (cli_info->pack->seq_num == rcv_next[thread]){
+                    write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
+
+                    printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", cli_info->pack->data_size, cli_info->pack->seq_num);
+                    printf("\033[0;35mPacket written on file:\033[0m\n");
+                    print_packet(*cli_info->pack);
+                    printf("\n\n");
+
+                    rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
+
+                    //Check if there are other buffered data to read
+                    printf("Check if there are other buffered data to read");
+                    i=0;
+                    j=0;
+                    while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size)){
+                        write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
+                        printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", rcv_buffer[i]->data_size, rcv_buffer[i]->seq_num);
+                        rcv_next[thread] += (unsigned long)rcv_buffer[i]->data_size;
+                
+                        memset(cli_info->pack, 0, sizeof(Packet));                    
+                        memcpy(cli_info->pack, rcv_buffer[i], sizeof(Packet));                    
+                        memset(&rcv_buffer[i], 0, sizeof(Packet*));
+                
+                        i++;
+                    }
+                    
+                }
+
+                //Reorder the buffer
+                if(i != 0){
+                    while((i+j < MAX_RVWD_SIZE) && (rcv_buffer[i+j] != NULL)){
+                        rcv_buffer[j] = rcv_buffer[i+j];
+                        memset(&rcv_buffer[i+j], 0, sizeof(Packet*));
+                        j++;
+                    }
+                } 
+            }           
 
         //PACKET OUT OF ORDER
         } else if (cli_info->pack->seq_num > rcv_next[thread]){
+            printf("Packet out of order.\n"); 
+
+            printf("\033[0;31mPacket #%lu NOT received. Please retransmit.\033[0m\n", rcv_next[thread]);
             //Store the packet
             store_rwnd(cli_info->pack, rcv_buffer, MAX_RVWD_SIZE);
+
         } 
 
         //Send ACK for the last correctly received packet
@@ -466,11 +293,10 @@ void response_put(int sd, char* filename, Client* cli_info)
             return;
         }
 
-        memset(cli_info->pack->data, 0, PAYLOAD);
+        //memset(cli_info->pack->data, 0, PAYLOAD);
+        //memset(cli_info->rtx_pack->data, 0, PAYLOAD);
         pthread_mutex_unlock(&mux_free[thread]);                   
     }
-
-    printf("\rTransmission has completed successfully.\n");
     fflush(stdout);
     fclose(fp);
 }
@@ -527,20 +353,7 @@ void* thread_service(void* arg){
 	    printf("Selected request: %s\n", cmd);
 	    
 	    //SERVE THE CLIENT
-	    if (strcmp(cmd, "list") == 0) {
-	        //Respond to LIST
-	        response_list(listensd, recipient); 
-
-	    } else if (strcmp(cmd, "get") == 0) {
-	        //Respond to GET
-	        if((cmd = strtok(NULL, " \n")) == NULL){
-	        	continue;
-	        }
-
-	        filename = strdup(cmd);
-	        response_get(listensd, filename, recipient);
-
-	    } else if (strcmp(cmd, "put") == 0) {
+	    if (strcmp(cmd, "put") == 0) {
 	        //Respond to PUT
 	        if((cmd = strtok(NULL, " \n")) == NULL){
 	        	continue;
@@ -698,6 +511,10 @@ int main(void)
             exit(EXIT_FAILURE);
 
         } else {
+            /*printf("\033[0;32mPacket received:\033[0m\n");
+            print_packet(*pk_rcv);
+            printf("\n\n");*/
+
             if (pk_rcv->type == SYN) {
                 //Received a new connection request
                 if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp, main_timerid) == -1){
@@ -751,7 +568,7 @@ int main(void)
                     printf("\033[0;34mWaiting for a request...\033[0m\n");
                 }else{
                     //New DATA packet
-                    pthread_mutex_lock(&mux_free[thread]);                
+                    pthread_mutex_lock(&mux_free[thread]);               
                     update_packet(cliaddr_head, thread, pk_rcv, time_temp);
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }
@@ -769,3 +586,35 @@ int main(void)
     exit(0);
 }
 
+/* UPDATE_PACKET
+ * @brief Update the packet stored into the client node in the list of clients.
+ * @param h: head of the list; 
+          thread: worker thread dedicated to the client; 
+          pk: new packet to upload;
+ * @return Packet*
+ */
+
+void update_packet(Client* h, int thread, Packet *pk, Timeout to){
+    Client *prev;
+    Client *curr;
+
+    prev = NULL;
+    curr = h;
+
+    while(curr != NULL){
+        prev = curr;
+        curr = curr->next;
+        if(thread == (prev->server)) {
+            if (rtx_packs[thread] == pk->seq_num) {
+                printf("here rtx.\n");
+                prev->rtx_pack = pk;
+
+            } else {
+                printf("here not rtx.\n");
+                prev->pack = pk;
+            }
+            prev->to_info = to;
+            break;
+        }
+    }
+}

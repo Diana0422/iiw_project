@@ -27,6 +27,7 @@
 typedef struct node{
 	struct sockaddr_in addr;   //Client's address: used for contact
 	Packet* pack;			   //Packet received from the client
+	Packet* rtx_pack;
 	int server;				   //ID of the thread serving the client
 	Timeout to_info;           // Timeout values structure
 	int ack_counter;
@@ -41,8 +42,6 @@ extern void get_client(Client**, int, Client**);
 extern void remove_client(Client**, struct sockaddr_in);
 
 extern void dispatch_client(Client*, struct sockaddr_in, int*);
-
-extern void update_packet(Client*, int, Packet*, Timeout);
 
 extern void print_list(Client*);
 

@@ -32,9 +32,9 @@ void print_rwnd(Packet** rwnd){
 		
 	}
 	if(rwnd[INIT_WND_SIZE-1] != NULL){
-		printf("%lu}\n\n", rwnd[INIT_WND_SIZE-1]->seq_num);
+		printf("%lu}\n", rwnd[INIT_WND_SIZE-1]->seq_num);
 	}else{
-		printf("NULL}\n\n");
+		printf("NULL}\n");
 	}
 }
 
@@ -122,7 +122,7 @@ void store_rwnd(Packet* pk, Packet* buff[], int size) {
 		buff[i] = pk;
 		
 	}else if(buff[size-1] != NULL){		//If the buffer is full don't do anything
-		//printf("Buffer overflow\n");
+		printf("Buffer overflow\n");
 	}else{									//In all other cases: store the packet in order
 		while(buff[i] != NULL){
 			if(pk->seq_num < buff[i]->seq_num){
@@ -130,10 +130,11 @@ void store_rwnd(Packet* pk, Packet* buff[], int size) {
 			}
 			i++;
 		}
+
 		buff[i] = pk;
 	}
 
-	//print_rwnd(buff);
+	print_rwnd(buff);
 }
 
 /* INCOMING ACK 
