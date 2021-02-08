@@ -22,9 +22,49 @@ int listensd;                                   //Listening socket descriptor: t
 Client *cliaddr_head;                           //Pointer to Client structure: head of the client list
 
 Packet* wnd[THREAD_POOL][INIT_WND_SIZE];        //Transmission windows for every thread
+unsigned long rtx_packs[THREAD_POOL];    //Lost packets ids
 
 timer_t timerid[THREAD_POOL];                   //Array of timer descriptors, assigned each one to a thread
 Timeout to[THREAD_POOL];                        //Timeout structures related to each thread 
+
+void update_packet(Client*, int, Packet*, Timeout);
+
+
+
+
+int is_first_lost(Packet* pk, int thread) {
+    if (pk->seq_num == rtx_packs[thread]) {
+        return 1;
+    }
+    return 0;
+}
+
+int is_lost(Packet* pk, int thread) {
+    for (int i=0; i<sizeof(rtx_packs[thread]); i++) {
+        if (pk->seq_num == rtx_packs[thread]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+int is_bufferized(unsigned long seq_num, Packet** buffer) {
+    int i=0;
+    while (buffer[i] != NULL) {
+        if (seq_num == buffer[i]->seq_num) {
+            printf("Packet is already in buffer.\n");
+            return 1;
+        }
+        i++;
+    }
+    printf("Packet is not already in buffer.\n");
+    return 0;
+}
+
+
+
+
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -68,7 +108,15 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
     //Fetch the packet to retransmit
     pk = wnd[id][0];
 
-    //printf("Retransmitting packet #%lu\n", pk->seq_num);
+    /* Print some log messages */
+    if (pk->type == ACK) {        
+        printf("Retransmitting packet #%lu...\n", pk->ack_num);
+    } else if (pk->type == DATA) {
+        printf("Retransmitting packet #%lu...\n", pk->seq_num);
+    }
+
+    printf("\033[1;32mPacket retransmitted:\033[0m\n");
+    print_packet(*pk);
     if (send_packet(pk, listensd, (struct sockaddr*)&address, addrlen, &to[id]) == -1) {
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", pk->seq_num);
         return;
@@ -382,9 +430,12 @@ void response_put(int sd, char* filename, Client* cli_info)
 
     //RECEPTION
     unsigned long send_next = cli_info->pack->ack_num;
-    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};    
+    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};  
+    unsigned long lost_packets[MAX_RVWD_SIZE];  
     int thread = cli_info->server;  
+
     /**END**/
+    printf("response put.\n");
 
     rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1; 
 
@@ -425,40 +476,96 @@ void response_put(int sd, char* filename, Client* cli_info)
 
     /* Receive data in chunks of 65000 bytes */
     while(write_size != size){
+        printf("Receiving data...\n");
         pthread_mutex_lock(&mux_avb[thread]);
+        printf("Data received.\n");
   
         if(cli_info->pack->seq_num == rcv_next[thread]){
-            //PACKET IN ORDER
-            write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
-            rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
-
-            //Check if there are other buffered data to read
-            i=0;
-            j=0;
-            while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size)){
-                write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
-                rcv_next[thread] += (unsigned long)rcv_buffer[i]->data_size;
-                
-                memset(cli_info->pack, 0, sizeof(Packet));                    
-                memcpy(cli_info->pack, rcv_buffer[i], sizeof(Packet));                    
-                memset(&rcv_buffer[i], 0, sizeof(Packet*));
-                
-                i++;
-            }
-
-            //Reorder the buffer
-            if(i != 0){
-                while((i+j < MAX_RVWD_SIZE) && (rcv_buffer[i+j] != NULL)){
-                    rcv_buffer[j] = rcv_buffer[i+j];
-                    memset(&rcv_buffer[i+j], 0, sizeof(Packet*));
-                    j++;
+            //Check if transmission has ended.
+            if(cli_info->pack->data_size == 0){
+                //Data transmission completed: check if the receive buffer is empty
+                if(rcv_buffer[0] == NULL){
+                    printf("\rTransmission has completed successfully.\n");
+                    fflush(stdout);
+                    fclose(fp);
+                    return;
                 }
-            }            
+
+            } else {
+                //PACKET IN ORDER
+                printf("Packet in order.\n");
+                if (cli_info->rtx_pack->seq_num == rcv_next[thread]) {
+                    write_size += fwrite(cli_info->rtx_pack->data, 1, cli_info->rtx_pack->data_size, fp);
+
+                    printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", cli_info->pack->data_size, cli_info->pack->seq_num);
+                    printf("\033[0;35mPacket written on file:\033[0m\n");
+                    print_packet(*cli_info->rtx_pack);
+                    printf("\n\n");
+
+                    rcv_next[thread] += (unsigned long)cli_info->rtx_pack->data_size;
+
+                    //Check if there are other buffered data to read
+                    printf("Check if there are other buffered data to read");
+                    i=0;
+                    j=0;
+                    while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == cli_info->rtx_pack->seq_num + (unsigned long)cli_info->rtx_pack->data_size)){
+                        write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
+                        printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", rcv_buffer[i]->data_size, rcv_buffer[i]->seq_num);
+                        rcv_next[thread] += (unsigned long)rcv_buffer[i]->data_size;
+                
+                        memset(cli_info->rtx_pack, 0, sizeof(Packet));                    
+                        memcpy(cli_info->rtx_pack, rcv_buffer[i], sizeof(Packet));                    
+                        memset(&rcv_buffer[i], 0, sizeof(Packet*));
+                
+                        i++;
+                    }
+    
+                } else if (cli_info->pack->seq_num == rcv_next[thread]){
+                    write_size += fwrite(cli_info->pack->data, 1, cli_info->pack->data_size, fp);
+
+                    printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", cli_info->pack->data_size, cli_info->pack->seq_num);
+                    printf("\033[0;35mPacket written on file:\033[0m\n");
+                    print_packet(*cli_info->pack);
+                    printf("\n\n");
+
+                    rcv_next[thread] += (unsigned long)cli_info->pack->data_size;
+
+                    //Check if there are other buffered data to read
+                    printf("Check if there are other buffered data to read");
+                    i=0;
+                    j=0;
+                    while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size)){
+                        write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
+                        printf("\033[0;32mWriting %ld bytes for DATA #%lu on file...\033[0m\n", rcv_buffer[i]->data_size, rcv_buffer[i]->seq_num);
+                        rcv_next[thread] += (unsigned long)rcv_buffer[i]->data_size;
+                
+                        memset(cli_info->pack, 0, sizeof(Packet));                    
+                        memcpy(cli_info->pack, rcv_buffer[i], sizeof(Packet));                    
+                        memset(&rcv_buffer[i], 0, sizeof(Packet*));
+                
+                        i++;
+                    }
+                    
+                }
+
+                //Reorder the buffer
+                if(i != 0){
+                    while((i+j < MAX_RVWD_SIZE) && (rcv_buffer[i+j] != NULL)){
+                        rcv_buffer[j] = rcv_buffer[i+j];
+                        memset(&rcv_buffer[i+j], 0, sizeof(Packet*));
+                        j++;
+                    }
+                } 
+            }           
 
         //PACKET OUT OF ORDER
         } else if (cli_info->pack->seq_num > rcv_next[thread]){
+            printf("Packet out of order.\n"); 
+
+            printf("\033[0;31mPacket #%lu NOT received. Please retransmit.\033[0m\n", rcv_next[thread]);
             //Store the packet
             store_rwnd(cli_info->pack, rcv_buffer, MAX_RVWD_SIZE);
+
         } 
 
         //Send ACK for the last correctly received packet
@@ -466,11 +573,10 @@ void response_put(int sd, char* filename, Client* cli_info)
             return;
         }
 
-        memset(cli_info->pack->data, 0, PAYLOAD);
+        //memset(cli_info->pack->data, 0, PAYLOAD);
+        //memset(cli_info->rtx_pack->data, 0, PAYLOAD);
         pthread_mutex_unlock(&mux_free[thread]);                   
     }
-
-    printf("\rTransmission has completed successfully.\n");
     fflush(stdout);
     fclose(fp);
 }
@@ -526,7 +632,7 @@ void* thread_service(void* arg){
 
 	    printf("Selected request: %s\n", cmd);
 	    
-	    //SERVE THE CLIENT
+        //SERVE THE CLIENT
 	    if (strcmp(cmd, "list") == 0) {
 	        //Respond to LIST
 	        response_list(listensd, recipient); 
@@ -698,6 +804,10 @@ int main(void)
             exit(EXIT_FAILURE);
 
         } else {
+            /*printf("\033[0;32mPacket received:\033[0m\n");
+            print_packet(*pk_rcv);
+            printf("\n\n");*/
+
             if (pk_rcv->type == SYN) {
                 //Received a new connection request
                 if(handshake(pk_hds, &init_seq, listensd, &cliaddr, cliaddrlen, &time_temp, main_timerid) == -1){
@@ -751,7 +861,7 @@ int main(void)
                     printf("\033[0;34mWaiting for a request...\033[0m\n");
                 }else{
                     //New DATA packet
-                    pthread_mutex_lock(&mux_free[thread]);                
+                    pthread_mutex_lock(&mux_free[thread]);               
                     update_packet(cliaddr_head, thread, pk_rcv, time_temp);
                     pthread_mutex_unlock(&mux_avb[thread]);
                 }
@@ -769,3 +879,35 @@ int main(void)
     exit(0);
 }
 
+/* UPDATE_PACKET
+ * @brief Update the packet stored into the client node in the list of clients.
+ * @param h: head of the list; 
+          thread: worker thread dedicated to the client; 
+          pk: new packet to upload;
+ * @return Packet*
+ */
+
+void update_packet(Client* h, int thread, Packet *pk, Timeout to){
+    Client *prev;
+    Client *curr;
+
+    prev = NULL;
+    curr = h;
+
+    while(curr != NULL){
+        prev = curr;
+        curr = curr->next;
+        if(thread == (prev->server)) {
+            if (rtx_packs[thread] == pk->seq_num) {
+                printf("here rtx.\n");
+                prev->rtx_pack = pk;
+
+            } else {
+                printf("here not rtx.\n");
+                prev->pack = pk;
+            }
+            prev->to_info = to;
+            break;
+        }
+    }
+}

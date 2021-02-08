@@ -44,22 +44,43 @@ void* log_thread(void* p){
 void retransmission(timer_t* ptr){
 
     int i = 0;
-    Packet_node* pk = wnd_head;
-    Timer_node* tm = timer_head;
-    Socket_node* sock = sock_head;
+    Packet_node* pk_node = wnd_head;
+    Timer_node* tm_node = timer_head;
+    Socket_node* sock_node = sock_head;
 
-    while(tm->next != NULL){
-        if(tm->timerid == ptr){
+    printf("In retransmission.\n");
+    while(tm_node->next != NULL){
+        printf("here0.\n");
+        if(tm_node->timerid == ptr){
             break;
         }
-        tm = tm->next;
-        pk = pk->next;
-        sock = sock->next;
+        printf("here1.\n");
+        tm_node = tm_node->next;
+        printf("here2.\n");
+        if (pk_node->next != NULL) {
+            pk_node = pk_node->next;
+        }
+        printf("here3.\n");
+        sock_node = sock_node->next;
         i++;
     }
+    /*
+    // Print some log messages
+    if (pk_node->pk->type == ACK) {        
+        printf("Retransmitting packet #%lu...\n", pk_node->pk->ack_num);
+    } else if (pk_node->pk->type == DATA) {
+        printf("Retransmitting packet #%lu...\n", pk_node->pk->seq_num);
+    }*/
 
-    if (send_packet(pk->pk, sock->sockfd, (struct sockaddr*)&servaddr, addrlen, &(tm->to)) == -1) {
-        fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", (pk->pk)->seq_num);
+    /* Re-send the packet */
+    printf("\033[1;32mPacket retransmitted:\033[0m\n");
+    if (pk_node->pk == NULL) {
+        return;
+    }
+    //print_packet(*pk_node->pk);
+    printf("retransmission: packet %p.\n", pk_node->pk);
+    if (send_packet(pk_node->pk, sock_node->sockfd, (struct sockaddr*)&servaddr, addrlen, &(tm_node->to)) == -1) {
+        fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", (pk_node->pk)->seq_num);
         return;
     }
 }
@@ -251,7 +272,6 @@ int request_list(int sock, unsigned long send_next, unsigned long rcv_next, Time
     free(pk);
     return 1;
 }
-
 
 /*
  --------------------------------------------------------------------------------------------------------------------------------
@@ -521,7 +541,7 @@ int request_put(int sock, char* filename, unsigned long send_next, unsigned long
     if(pthread_create(&acktid, 0, ack_thread, (void*)buff)){
         fprintf(stderr, "pthread_create() failed");
         exit(-1);
-    }
+    }           // -> ACK_THREAD AGISCE SU BASE PERCHÉ GLIELO PASSO
   
     //Send the file to the server
     while((!feof(fp)) && (done != size)) {       
@@ -534,6 +554,8 @@ int request_put(int sock, char* filename, unsigned long send_next, unsigned long
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
+        //printf("\033[0;32mPacket sent:\033[0m\n");
+        print_packet(*pk);
         send_next += (unsigned long)pk->data_size;
 
         //Print progress
@@ -544,8 +566,9 @@ int request_put(int sock, char* filename, unsigned long send_next, unsigned long
         //Update transmission
         pthread_mutex_lock(&wnd_mux);
         update_window(pk, wnd, &usable_wnd);
+
         if(usable_wnd == INIT_WND_SIZE-1){
-        	base->pk = wnd[0];
+        	base->pk = wnd[0]; 
             arm_timer(timer, 0);
         }
         pthread_mutex_unlock(&wnd_mux);

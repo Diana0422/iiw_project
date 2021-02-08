@@ -23,6 +23,11 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet, Time
     	exit(-1);
     }
 
+    if ((new->rtx_pack = (Packet*)malloc(sizeof(Packet))) == NULL) {
+        perror("Malloc() failed.\n");
+    	exit(-1);
+    }
+
     new->addr = cli_addr;
     new->pack = packet;     
     new->to_info = to; 
@@ -126,28 +131,3 @@ void dispatch_client(Client* h, struct sockaddr_in address, int* server){
     }
 }
 
-/* UPDATE_PACKET
- * @brief Update the packet stored into the client node in the list of clients.
- * @param h: head of the list; 
-          thread: worker thread dedicated to the client; 
-          pk: new packet to upload;
- * @return Packet*
- */
-
-void update_packet(Client* h, int thread, Packet *pk, Timeout to){
-    Client *prev;
-    Client *curr;
-
-    prev = NULL;
-    curr = h;
-
-    while(curr != NULL){
-        prev = curr;
-        curr = curr->next;
-        if(thread == (prev->server)) {
-            prev->pack = pk;
-            prev->to_info = to;
-            break;
-        }
-    }
-}

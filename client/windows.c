@@ -185,13 +185,13 @@ Packet_node* insert_base(Packet_node** head){
           ack_to: timeout structure in the ack packet;
  */
 
-void incoming_ack(unsigned long ack_num, int* num_dup, unsigned long* last_received, Packet** base, short* free_space, Timeout ack_to, Timer_node* timer)
+void incoming_ack(unsigned long ack_num, int* num_dup, unsigned long* last_received, Packet** wnd, short* free_space, Timeout ack_to, Timer_node* timer)
 {
     int i; 
 
     //Find the packet in the transmission window that the ACK received ackowledges
     for(i=0; i<(INIT_WND_SIZE - *free_space); i++){
-        if(base[i]->seq_num == ack_num){
+        if(wnd[i]->seq_num == ack_num){
             break;
         }
     }
@@ -215,8 +215,8 @@ void incoming_ack(unsigned long ack_num, int* num_dup, unsigned long* last_recei
 
     if(i != 0){
     	disarm_timer(timer->timerid);  
-	    refresh_window(base, i, free_space);
-	    if(base[0] != NULL){           
+	    refresh_window(wnd, i, free_space);
+	    if(wnd[0] != NULL){           
 	        arm_timer(timer, 0);
 		}else{
 			(timer->to).end = ack_to.end;
