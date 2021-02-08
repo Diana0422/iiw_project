@@ -165,6 +165,270 @@ void* ack_thread(void* arg){
 }
 
 /* 
+ ------------------------------------------------------------------------------------------------------------------------------------------------
+ LIST OPERATION
+ ------------------------------------------------------------------------------------------------------------------------------------------------
+ */
+ 
+int request_list(int sock, unsigned long send_next, unsigned long rcv_next, Timer_node* timer)
+{
+    /**VARIABLE DEFINITIONS**/
+    int i, j;
+    Packet *pk;
+    Packet* rcv_buffer[MAX_RVWD_SIZE] = {NULL};
+    /**END**/
+
+    //Prepare to receive packets
+    printf("\033[1;34m--- FILELIST ---\033[0m\n");
+
+    pk = (Packet*)malloc(sizeof(Packet));
+    if (pk == NULL) {
+    	failure("Error: couldn't malloc packet.");
+    }   
+ 
+    //Retreive packets
+    while (recv_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) != -1) {
+
+        if(pk->seq_num == rcv_next){
+    	//Packet received in order: gets read by the client
+    	//printf("Received packet #%lu in order.\n", pk->seq_num);
+
+            //Check if transmission has ended.
+            if(pk->data_size == 0){
+                //Data transmission completed: check if the receive buffer is empty
+                if(rcv_buffer[0] == NULL){
+                    printf("Transmission has completed successfully.\n");
+                    fflush(stdout);
+                    return 0;
+                }
+
+                //Send ACK for the last correctly received packet
+                if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                    return 1;
+                }
+
+            }else{
+                printf("%s\n", pk->data);
+                rcv_next += (unsigned long)pk->data_size;
+
+                //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
+                i=0;
+                j=0;
+                while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == pk->seq_num + (unsigned long)pk->data_size)){
+                    printf("%s\n", rcv_buffer[i]->data);
+                    rcv_next += (unsigned long)rcv_buffer[i]->data_size;
+                    
+                    memset(pk, 0, sizeof(Packet));                    
+                    memcpy(pk, rcv_buffer[i], sizeof(Packet));                   
+                    memset(&rcv_buffer[i], 0, sizeof(Packet*));
+                    
+                    i++;
+                }
+
+                if(i != 0){
+                    while((i+j < MAX_RVWD_SIZE) && (rcv_buffer[i+j] != NULL)){
+                        rcv_buffer[j] = rcv_buffer[i+j];
+                        memset(&rcv_buffer[i+j], 0, sizeof(Packet*));
+                        j++;
+                    }
+                }             
+
+                //Send ACK for the last correctly received packet
+                if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                    return 1;
+                }
+
+                memset(pk->data, 0, PAYLOAD);
+            }
+
+        } else if(pk->seq_num > rcv_next){
+            //Packet received out of order: store packet in the receive buffer
+            //printf("Received packet #%lu out of order.\n", pk->seq_num);
+         	store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
+         		
+            //Send ACK for the last correctly received packet
+            if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                return 1;
+            }
+  	
+        } else{
+            //Received duplicated packet
+            //printf("Received duplicated packet #%lu.\n", pk->seq_num);
+
+            //Send ACK for the last correctly received packet
+            if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                return 1;
+            }
+        }
+
+        //Change the pk address or the receive buffer will have all identical packets: waste of memory -> looking for alternatives
+        pk = (Packet*)malloc(sizeof(Packet));
+        if (pk == NULL) {
+            fprintf(stderr, "Error: couldn't malloc packet.\n");
+            return 0;
+        }
+    }
+
+    free(pk);
+    return 1;
+}
+
+/*
+ --------------------------------------------------------------------------------------------------------------------------------
+ GET OPERATION
+ --------------------------------------------------------------------------------------------------------------------------------
+ */
+
+int request_get(int sock, char* filename, unsigned long send_next, unsigned long rcv_next, Timer_node* timer)
+{
+    /**VARIABLE DEFINITIONS**/
+    FILE *fp;
+    ssize_t write_size = 0;
+    int i, j;
+    Packet *pk;
+    Packet *rcv_buffer[MAX_RVWD_SIZE] = {NULL};
+    int size;
+    double percent;
+    FILE* log_d;
+    char logname[LOGDIM];
+    pthread_t logtid;
+    /**END**/
+
+    //Initialize packet
+    pk = (Packet*)malloc(sizeof(Packet));
+    if (pk == NULL) {
+        fprintf(stderr, "Error: couldn't malloc packet.\n");
+        return 0;
+    }
+
+    //Open the log
+    sprintf(logname, "log/log%d.log", rand());
+    log_d = fopen(logname, "w+");
+    if (log_d == NULL) {
+        fprintf(stderr, "Error: cannot open file %s.\n", logname);
+        return 1;
+    }
+
+    if(pthread_create(&logtid, 0, log_thread, logname)){
+        fprintf(stderr, "pthread_create() failed");
+        return 1;
+    }
+
+    //Open the file to write on
+    fp = fopen(filename, "w+");
+    if (fp == NULL) {
+        fprintf(stderr, "Error: cannot open file %s.\n", filename);
+        return 1;
+    }
+
+    //Receive file size
+    while(1){
+    	if(recv_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) != -1){
+    		if(pk->seq_num == rcv_next){
+	            sscanf(pk->data, "%d", &size);
+	            printf("RECEIVED SIZE = %d\n", size);
+	            rcv_next += (unsigned long)pk->data_size;
+	            //Send ACK for the last correctly received packet
+                if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                    return 1;
+                }
+	            break;
+	        }
+    	}  
+    }
+    
+    /* Receive data in chunks of 65000 bytes */
+    while(recv_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) != -1){
+        //Check if the received packet is in order with the stream of bytes
+        if(pk->seq_num == rcv_next){
+            //Check if transmission has ended.
+            if(pk->data_size == 0){
+                //Data transmission completed: check if the receive buffer is empty
+                if(rcv_buffer[0] == NULL){
+                    printf("\rTransmission has completed successfully.\n");
+                    fflush(stdout);
+                    fclose(fp);
+                    return 0;
+                }
+
+                //Send ACK for the last correctly received packet
+                if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                    return 1;
+                }
+
+            }else{
+                //Packet receiver in order
+                write_size += fwrite(pk->data, 1, pk->data_size, fp);
+                rcv_next += (unsigned long)pk->data_size;
+
+                //Print progress
+		        percent = (double)write_size/size;        
+		        print_progress(percent, log_d);
+
+                //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
+                i=0;
+                j=0;
+                while((rcv_buffer[i] != NULL) && (rcv_buffer[i]->seq_num == pk->seq_num + (unsigned long)pk->data_size)){
+                    //Convert byte array to file
+                    write_size += fwrite(rcv_buffer[i]->data, 1, rcv_buffer[i]->data_size, fp);
+                    rcv_next += (unsigned long)rcv_buffer[i]->data_size;
+
+                    //Print progress
+			        percent = (double)write_size/size;        
+			        print_progress(percent, log_d);
+                    
+                    memset(pk, 0, sizeof(Packet));                   
+                    memcpy(pk, rcv_buffer[i], sizeof(Packet));                   
+                    memset(&rcv_buffer[i], 0, sizeof(Packet*));
+                    
+                    i++;
+                }
+
+                if(i != 0){
+                    while((i+j < MAX_RVWD_SIZE) && (rcv_buffer[i+j] != NULL)){
+                        rcv_buffer[j] = rcv_buffer[i+j];
+                        memset(&rcv_buffer[i+j], 0, sizeof(Packet*));
+                        j++;
+                    }
+                }   
+     
+                //Send ACK for the last correctly received packet
+                if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                    return 1;
+                }
+            }
+            
+        }else if(pk->seq_num > rcv_next){
+            //Packet received out of order: store packet in the receive buffer
+            store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
+                
+            //Send ACK for the last correctly received packet
+            if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                return 1;
+            }
+    
+        } else{
+            //Received duplicated packet
+            if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
+                return 1;
+            }
+        }
+
+        //Reset the packet
+        pk = (Packet*)malloc(sizeof(Packet));
+        if (pk == NULL) {
+            fprintf(stderr, "Error: couldn't malloc packet.\n");
+            return 0;
+        }
+
+        //Print progress
+        //printf("\033[1;34m%ld bytes downloaded.\033[0m\n", write_size);
+    }
+
+    return 0;
+}
+
+/* 
  --------------------------------------------------------------------------------------------------------------------------------
  PUT OPERATION
  --------------------------------------------------------------------------------------------------------------------------------
@@ -434,7 +698,15 @@ void* thread_function(void* arg){
     //Compute the timeout interval for exchange: REQUEST, ACK
     timeout_interval(&(timer->to));
 
-    if (strcmp(request, "put") == 0) {
+    if (strcmp(request, "list") == 0) {
+        //Execute LIST
+        res = request_list(sock, send_next, rcv_next, timer);
+    
+    } else if (strcmp(request, "get") == 0) {
+        //Execute GET
+        res = request_get(sock, filename, send_next, rcv_next, timer);
+
+    } else if (strcmp(request, "put") == 0) {
         //Execute PUT
         res = request_put(sock, filename, send_next, rcv_next, trans_base, timer);
 

@@ -129,6 +129,286 @@ void retransmission(timer_t* ptr, bool fast_rtx, int thread){
 
 /*
  -----------------------------------------------------------------------------------------------------------------------------------------------
+ LIST OPERATION
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ */
+
+void response_list(int sd, Client* cli_info)
+{
+    /**VARIABLE DEFINITIONS**/
+    struct sockaddr_in addr = cli_info->addr;     //Client address
+    socklen_t addrlen = sizeof(addr); 
+    DIR* dirp;                                    
+    struct dirent* pdirent;
+    Packet *pk;
+    char* buff;
+    int payld = 0;    //Used to insert as much filenames as possibile into one packet (Transmission efficiency)
+    unsigned long send_next = cli_info->pack->ack_num;
+    int thread = cli_info->server;
+    /**END**/
+
+    rcv_next[thread] = cli_info->pack->seq_num + (int)cli_info->pack->data_size + 1;  //The sequence number of the next byte of data that is expected from the client
+    usable_wnd[thread] = INIT_WND_SIZE;
+
+    //printf("response_list started.\n");
+    
+    //Send ACK
+    if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
+        return;
+    }
+
+    // Ensure we can open directory
+    dirp = opendir("files");
+    if (dirp == NULL) {
+        perror("Cannot open directory");
+        exit(-1);
+    }
+    
+    buff = (char*)malloc(PAYLOAD);
+    if(buff == NULL){
+        perror("Malloc failed.");
+        exit(EXIT_FAILURE);
+    }
+
+    //Process each entry in the directory
+    while((pdirent = readdir(dirp)) != NULL){
+        //Ignore the current and parent directory
+        if(!(strcmp(pdirent->d_name, ".") && strcmp(pdirent->d_name, ".."))){ 
+            continue;
+        }
+
+        strcat(buff, pdirent->d_name);
+        strcat(buff, "\n");
+        //Check if more data can be sent into one packet only
+        if((payld += strlen(buff)) > PAYLOAD){
+            //Send data packet with filenames
+            pk = create_packet(send_next, rcv_next[thread], strlen(buff), buff, DATA);
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
+                fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
+                return;
+            }
+            send_next += (unsigned long)pk->data_size;
+
+            pthread_mutex_lock(&wnd_lock[thread]);
+            update_window(pk, wnd, thread, &usable_wnd[thread]);
+            pthread_mutex_unlock(&wnd_lock[thread]);
+
+            //If it's the first packet to be transmitted, start timer
+            if(usable_wnd[thread] == INIT_WND_SIZE-1){
+            	arm_timer(&to[thread], timerid[thread], 0);
+            }
+
+            while(usable_wnd[thread] == 0){
+                //FULL WINDOW: wait for ACK until either it is received or the timer expires
+                sleep(1);
+            }
+
+            payld = 0;
+            memset(buff, 0, strlen(buff));
+        }       
+    }
+    
+    //Send last data packet with filenames (amount of data smaller than PAYLOAD)
+    pk = create_packet(send_next, rcv_next[thread], strlen(buff), buff, DATA);
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
+        fprintf(stderr, "Error: couldn't send packet #%lu.\n", pk->seq_num);
+        return;
+    }
+    send_next += (int)pk->data_size;
+
+    pthread_mutex_lock(&wnd_lock[thread]);
+    update_window(pk, wnd, thread, &usable_wnd[thread]);
+    pthread_mutex_unlock(&wnd_lock[thread]);
+
+    //If it's the first packet to be transmitted, start timer
+    if(usable_wnd[thread] == INIT_WND_SIZE-1){
+        arm_timer(&to[thread], timerid[thread], 0);
+    } 
+
+    //Wait for ACK until every packet is correctly received
+    while(usable_wnd[thread] != INIT_WND_SIZE){
+        sleep(1);
+    }
+       
+    pk = create_packet(send_next, rcv_next[thread], 0, NULL, DATA);
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
+    	fprintf(stderr, "Error: couldn't send the filename.\n");
+        return;
+    }
+
+    free(buff);
+    free(pk);
+}
+
+/*
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ GET OPERATION
+ -----------------------------------------------------------------------------------------------------------------------------------------------
+ */
+
+void response_get(int sd, char* filename, Client* cli_info)
+{
+    /**VARIABLE DEFINITIONS**/
+    struct sockaddr_in addr = cli_info->addr;
+    socklen_t addrlen = sizeof(addr);
+    char *sendline;
+    FILE *fp;
+    char path[strlen("files/")+strlen(filename)];
+    ssize_t read_size;
+    unsigned long send_next = cli_info->pack->ack_num;
+    Packet *pk;
+    int size;
+
+    int thread = cli_info->server;
+    /**END**/
+
+    //printf("THREAD WORKING: thread #%d\n", thread);
+
+    rcv_next[thread] = cli_info->pack->seq_num + (unsigned long)cli_info->pack->data_size + 1;    
+    usable_wnd[thread] = INIT_WND_SIZE;   
+
+    //printf("response_get started.\n\n");
+
+    //Try to open the file and check if it exists
+    memset(path, 0, strlen(path));
+    strcat(path, "files/");
+    strcat(path, filename);
+    
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        if(errno == ENOENT){
+            sendline = "The file does not exist.";
+            printf("%s\n", sendline);
+            pk = create_packet(send_next, rcv_next[thread], strlen(sendline), sendline, ERROR);     
+            if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1){
+                free(pk);
+                fprintf(stderr, "Error: couldn't send data.\n");
+                return;
+            }
+            send_next += (unsigned long)pk->data_size;
+
+            pthread_mutex_lock(&wnd_lock[thread]);
+            update_window(pk, wnd, thread, &usable_wnd[thread]);       
+            pthread_mutex_unlock(&wnd_lock[thread]);
+
+            arm_timer(&to[thread], timerid[thread], 0);
+
+            //Wait for the ACK
+            while(usable_wnd[thread] != INIT_WND_SIZE){
+                sleep(1);
+            }
+
+            return;
+
+        }else{
+            fprintf(stderr, "Error: couldn't open %s.", filename);
+            return;
+        }
+        
+    }
+
+    //Send ACK for the request packet
+    if(send_ack(sd, addr, addrlen, send_next, rcv_next[thread], &to[thread])){
+        return;
+    }
+    
+    //Open the file
+    memset(path, 0, strlen(path));
+    strcat(path, "files/");
+    strcat(path, filename);
+    
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        fprintf(stderr, "Error: couldn't open %s.", filename);
+        return;
+    }
+
+    //Allocate space
+    if((sendline = (char*)malloc(MAX_DGRAM_SIZE)) == NULL){
+    	perror("Malloc() failed.");
+    	exit(-1);
+    }
+    memset(sendline, 0, MAX_DGRAM_SIZE);
+
+    //Get file size
+    fseek(fp, 0, SEEK_END);
+    size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    //Send file size
+    sprintf(sendline, "%d", size);
+    pk = create_packet(send_next, rcv_next[thread], strlen(sendline), sendline, DATA);    
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
+        free(sendline);
+        free(pk);
+        fprintf(stderr, "Error: couldn't send data.\n");
+        return;
+    }
+    send_next += (unsigned long)pk->data_size;
+
+    pthread_mutex_lock(&wnd_lock[thread]);
+    update_window(pk, wnd, thread, &usable_wnd[thread]);       
+    pthread_mutex_unlock(&wnd_lock[thread]);
+
+    arm_timer(&to[thread], timerid[thread], 0);
+
+    //Wait for the ACK
+    while(usable_wnd[thread] != INIT_WND_SIZE){
+        sleep(1);
+    }
+  
+    //Send the file to the client
+    while(!feof(fp)) {       
+        //Read from the file and send data   
+        read_size = fread(sendline, 1, PAYLOAD, fp);
+        pk = create_packet(send_next, rcv_next[thread], read_size, sendline, DATA);     
+        if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
+            free(sendline);
+            free(pk);
+            fprintf(stderr, "Error: couldn't send data.\n");
+            return;
+        }
+        send_next += (unsigned long)pk->data_size;
+
+        pthread_mutex_lock(&wnd_lock[thread]);
+        update_window(pk, wnd, thread, &usable_wnd[thread]);       
+        pthread_mutex_unlock(&wnd_lock[thread]);
+
+        //If it's the the only packet in the window, start timer
+        if(usable_wnd[thread] == INIT_WND_SIZE-1){
+            arm_timer(&to[thread], timerid[thread], 0);
+        }
+
+        while(usable_wnd[thread] == 0){
+            //FULL WINDOW: wait for ACK until either it is received or the timer expires
+            sleep(1);
+        }
+
+        memset(sendline, 0, MAX_DGRAM_SIZE);
+    }
+
+    pk = create_packet(send_next, rcv_next[thread], 0, NULL, DATA);
+    if (send_packet(pk, sd, (struct sockaddr*)&addr, addrlen, &to[thread]) == -1) {
+        fprintf(stderr, "Error: couldn't send the filename.\n");
+        return;
+    }
+
+    pthread_mutex_lock(&wnd_lock[thread]);
+    update_window(pk, wnd, thread, &usable_wnd[thread]);    
+    pthread_mutex_unlock(&wnd_lock[thread]);
+
+    //Wait for ACK until every packet is correctly received
+    while(usable_wnd[thread] != INIT_WND_SIZE){
+        sleep(1);
+    }
+    
+    free(sendline);
+    free(pk);
+    fclose(fp);
+}
+
+/*
+ -----------------------------------------------------------------------------------------------------------------------------------------------
  PUT OPERATION
  -----------------------------------------------------------------------------------------------------------------------------------------------
  */
@@ -352,8 +632,21 @@ void* thread_service(void* arg){
 
 	    printf("Selected request: %s\n", cmd);
 	    
-	    //SERVE THE CLIENT
-	    if (strcmp(cmd, "put") == 0) {
+        //SERVE THE CLIENT
+	    if (strcmp(cmd, "list") == 0) {
+	        //Respond to LIST
+	        response_list(listensd, recipient); 
+
+	    } else if (strcmp(cmd, "get") == 0) {
+	        //Respond to GET
+	        if((cmd = strtok(NULL, " \n")) == NULL){
+	        	continue;
+	        }
+
+	        filename = strdup(cmd);
+	        response_get(listensd, filename, recipient);
+
+	    } else if (strcmp(cmd, "put") == 0) {
 	        //Respond to PUT
 	        if((cmd = strtok(NULL, " \n")) == NULL){
 	        	continue;
