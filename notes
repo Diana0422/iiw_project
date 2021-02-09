@@ -1,3 +1,0 @@
-- Bugged transmission of videos when using PUT
-- Occasional SEGFAULT: cannot see the cause of it
-- Need for a mechanism of connection termination when the other node crashes
