@@ -51,4 +51,6 @@ extern int loss_with_prob(int);
 
 extern void incoming_ack(int, Client*, Packet*, Packet*(*)[INIT_WND_SIZE], short*, Timeout, timer_t, Timeout*);
 
+extern void update_packet(Client*, unsigned long, int, Packet*, Timeout);
+
 #endif /* client_test_h */

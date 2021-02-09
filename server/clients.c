@@ -49,11 +49,14 @@ void insert_client(Client **h, struct sockaddr_in cli_addr, Packet* packet, Time
         prev->next = new;
         new->next = curr;
     }
-    
-    //AUDIT
-    printf("Client inserted: ");
-    print_list(*h);
 }
+
+/* GET_CLIENT 
+ * @brief get a client to serve in the list 
+ * @param h: pointer to the head of the client list
+          thread: id of the server thread
+          client_info: pointer to the client struct of the client to acquire
+ */
 
 void get_client(Client **h, int thread, Client** client_info){
 
@@ -64,9 +67,7 @@ void get_client(Client **h, int thread, Client** client_info){
             node->server = thread;
             *client_info = node;
 
-            //AUDIT
-            printf("Client acquired: ");
-            print_list(*h);
+            printf("New client acquired.\n");
             
             return;
         }
@@ -74,6 +75,11 @@ void get_client(Client **h, int thread, Client** client_info){
     }
 }
 
+/* REMOVE_CLIENT 
+ * @brief remove a client from the list 
+ * @param h: pointer to the head of the client list
+          addr: socket address of the client
+ */
 
 void remove_client(Client **h, struct sockaddr_in addr){
 
@@ -98,20 +104,14 @@ void remove_client(Client **h, struct sockaddr_in addr){
         prev = curr;
         curr = curr->next;
     }
-
-    printf("Client removed: ");
-    print_list(*h);
-    printf("\n");
 }
 
-void print_list(Client *h){
-    printf("[");
-    while(h != NULL){
-        printf("T%d -> ", h->server);
-        h = h->next;
-    }
-    printf("NULL]\n");
-}
+/* DISPATCH_CLIENT 
+ * @brief dispatch new messages from the clients to the right server thread
+ * @param h: pointer to the head of the client list
+          address: socket address of the client
+          server: pointer to the variable that will contain the server thread id
+ */
 
 void dispatch_client(Client* h, struct sockaddr_in address, int* server){
 

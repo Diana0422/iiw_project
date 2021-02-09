@@ -4,8 +4,12 @@
 
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
- * @param type: message type; seq_num: sequence number of the packet; size: data size; data: pointer to data buffer
- * @return Packet*
+ * @param seq_num: sequence number of the packet;
+ 	      ack_num: ack number of the packet; 
+ 	      size: data size; 
+ 	      data: pointer to data buffer;
+ 	      type: message type; 
+ * @return pointer to the new packet
  */
  
 Packet* create_packet(unsigned long seq_num, unsigned long ack_num, size_t size, char* data, packet_type type)
@@ -32,12 +36,11 @@ Packet* create_packet(unsigned long seq_num, unsigned long ack_num, size_t size,
 
 	return pack;
 }
-
-   
+  
 /* SERIALIZE_PACKET
  * @brief Serialize packet data into a buffer that can be sent through a socket
- * @param packet: packet to read
- * @return char* buffer: pointer to packet.
+ * @param packet: pointer to the packet to read;
+ * @return char* buffer: pointer to the serialized packet.
  */
     
 char* serialize_packet(Packet* packet)
@@ -63,8 +66,8 @@ char* serialize_packet(Packet* packet)
 
 /* UNSERIALIZE_PACKET
  * @brief Unserialize data from a memory area into a packet (struct)
- * @param buffer: pointer to source memory area, packet: pointer to destination packet.
- * @return Packet* packet: pointer to packet.
+ * @param buffer: pointer to source memory area;
+ * @return unserialized packet.
  */
 
 Packet unserialize_packet(char* buffer)
@@ -89,7 +92,6 @@ Packet unserialize_packet(char* buffer)
 
 	memset(pk->data, 0, pk->data_size);
 	if(pk->data_size){
-		//memmove(buffer, buffer+len, pk->data_size);
 		memcpy(pk->data, buffer+len, pk->data_size);
 	}else{
 		strcpy(pk->data, buffer+len);
@@ -100,9 +102,13 @@ Packet unserialize_packet(char* buffer)
     
 
 /* SEND_PACKET
- * @brief Sends a struct through socket;
- * @param pkt = pointer to struct to send, socket = socket descriptor, addr = destination address, addrlen = destination address length
- * @return 1 = error, n = ok
+ * @brief Sends a packet through socket;
+ * @param pkt = pointer to the packet to send;
+ 		  socket = socket descriptor;
+ 		  addr = destination address;
+ 		  addrlen = destination address length;
+ 		  t = pointer to the timeout struct assigned to the packet;
+ * @return -1 = error, else ok
  */
  
  int send_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen, Timeout* t)
@@ -116,9 +122,7 @@ Packet unserialize_packet(char* buffer)
 
 	gettimeofday(&t->start, NULL);
 
-	//printf("Sending packet #%lu\n", pkt->seq_num);  
-	if(loss_with_prob(LOSS_PROB)){	
-		printf("PACKET LOSS\n");
+	if(loss_with_prob(LOSS_PROB)){
 		n = 1;
 	}else{
 	 	if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, MSG_DONTWAIT, (struct sockaddr*)addr, addrlen)) == -1) {
@@ -130,36 +134,44 @@ Packet unserialize_packet(char* buffer)
 	 		return -1;
 		}
 	}
-	//printf("Packet #%lu correctly sent\n", pkt->seq_num);
+
     return n;
  }
  
 /* SEND_ACK
- * @brief Sends an ACK through socket;
- * @param 
- * @return 
+ * @brief Sends an ACK packet through socket;
+ * @param socket = socket descriptor;
+ 		  addr = destination address;
+ 		  addrlen = destination address length;
+ 		  seq = sequence number of the ack;
+ 		  ack = ack number of the ack;
+ 		  to = pointer to the timeout struct assigned to the ack;
+ * @return 1 for error, 0 for success
  */
  
  int send_ack(int socket, struct sockaddr_in addr, socklen_t addrlen, unsigned long seq, unsigned long ack, Timeout* to)
  {
  	Packet* pack;
 
- 	//printf("Sending ACK #%lu.\n", ack);
     pack = create_packet(seq, ack, 0, NULL, ACK);
     if (send_packet(pack, socket, (struct sockaddr*)&addr, addrlen, to) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
         free(pack);
         return 1;
     } 
-    //printf("ACK #%lu correctly sent.\n", pack->ack_num);
+    
     free(pack); 
 
     return 0;
  }
 
 /* RECV_PACKET
- * @brief Receive a packet/struct through a socket
- * @param pkt: pointer to packet, socket: socket descriptor, addr: pointer to address struct, addlen: size of addr
+ * @brief Receive a packet through a socket
+ * @param pkt: pointer to packet; 
+ 		  socket: socket descriptor;
+ 		  addr: pointer to address struct;
+ 		  addlen: size of addr
+ 		  t = pointer to the timeout struct assigned to the packet;
  * @return error: -1, success: n
  */
  
@@ -186,54 +198,33 @@ Packet unserialize_packet(char* buffer)
 	return n;
  }
 
-//DEBUG
-
-/* PRINT_PACKET 
- * @brief printf the individual fields of a packet.
- * @param packet to print
+ /* UPDATE_PACKET
+ * @brief Update the packet stored into the client node in the list of clients.
+ * @param h: head of the list; 
+          thread: worker thread dedicated to the client; 
+          pk: new packet to upload;
+ * @return Packet*
  */
 
-void print_packet(Packet pk){
-	char type_str[7];
-	int type_int = (int)(pk.type);
-	char buff[MAX_DGRAM_SIZE];
-	char byte_str[50];
+void update_packet(Client* h, unsigned long lost_id, int thread, Packet *pk, Timeout to){
+    Client *prev;
+    Client *curr;
 
-	printf("--PACKET--\n");
+    prev = NULL;
+    curr = h;
 
-	switch(type_int){
-		case 0:
-			strcpy(type_str, "DATA");
-			break;
-		case 1:
-			strcpy(type_str,"ACK");
-			break;
-		case 2:
-			strcpy(type_str,"SYN");
-			break;
-		case 3:
-			strcpy(type_str,"SYNACK");
-			break;
-		case 4:
-			strcpy(type_str,"FIN");
-			break;
-		case 5:
-			strcpy(type_str,"FINACK");
-			break;
-	}
+    while(curr != NULL){
+        prev = curr;
+        curr = curr->next;
+        if(thread == (prev->server)) {
+            if (lost_id == pk->seq_num) {
+                prev->rtx_pack = pk;
 
-	//printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
-	memset(buff, 0, strlen(buff));
-	memset(byte_str, 0, strlen(byte_str));
-
-	int i, count = 1;
-	for (i = 0; i < (int)pk.data_size; i++){
-		sscanf(byte_str, "%02X", pk.data[i]);
-		strcat(buff, byte_str);
-		memset(byte_str, 0, strlen(byte_str));
-	    count++;
-	}
-	
-	printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\nData: %02X\n", type_str, pk.seq_num, pk.ack_num, pk.data_size, buff);
-	printf("\n\n");
+            } else {
+                prev->pack = pk;
+            }
+            prev->to_info = to;
+            break;
+        }
+    }
 }

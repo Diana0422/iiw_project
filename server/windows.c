@@ -1,60 +1,21 @@
 #include "server.h"
 
-//DEBUG
-void print_wnd(Packet* list[]){
-	int i;
-	printf("\nTransmission window: {");
-	for(i=0; i<INIT_WND_SIZE-1; i++){
-		if(list[i] != NULL){
-			printf("%lu, ", list[i]->seq_num);
-		}else{
-			printf("NULL, ");
-		}
-		
-	}
-	if(list[INIT_WND_SIZE-1] != NULL){
-		printf("%lu}\n\n", list[INIT_WND_SIZE-1]->seq_num);
-	}else{
-		printf("NULL}\n\n");
-	}
-	
-}
-
-void print_rwnd(Packet** rwnd){
-	int i;
-	printf("\nReceive window: {");
-	for(i=0; i<INIT_WND_SIZE-1; i++){
-		if(rwnd[i] != NULL){
-			printf("%lu, ", rwnd[i]->seq_num);
-		}else{
-			printf("NULL, ");
-		}
-		
-	}
-	if(rwnd[INIT_WND_SIZE-1] != NULL){
-		printf("%lu}\n", rwnd[INIT_WND_SIZE-1]->seq_num);
-	}else{
-		printf("NULL}\n");
-	}
-}
-
 /* UPDATE_WINDOW 
  * @brief add a new transmitted packet to the transmission window
  * @param sent: transmitted packet;
  		  list: transmission windows;
  		  pos: id of the thread that has transmitted the packet;
+ 		  free_space: pointer to the variable containing the space left in the window;
  */
 
 void update_window(Packet* sent, Packet* list[][INIT_WND_SIZE], int pos, short* free_space){
 
 	list[pos][INIT_WND_SIZE - *free_space] = sent;
 	*free_space = *free_space - 1;
-	//print_wnd(list[pos]);
 }
 
 /* REFRESH_WINDOW 
- * @brief discard every packet sent that has been acknowledged considering the last ack received and slide the others still "in flight"
- 		  at the initial positions
+ * @brief discard every packet sent that has been acknowledged and slide the window
  * @param list: transmission windows;
  		  pos: id of the thread that has received the ack;
  		  index: index in the thread's transmission window of the acknowledged packet;
@@ -78,8 +39,6 @@ void refresh_window(Packet* list[][INIT_WND_SIZE], int pos, int index, short* fr
 	}
 
 	*free_space = INIT_WND_SIZE - count;
-
-	//print_wnd(list[pos]);
 }
 
 /* ORDER_RWND 
@@ -118,12 +77,15 @@ void store_rwnd(Packet* pk, Packet* buff[], int size) {
 
 	int i=0;
 
-	if(buff[i] == NULL){ 	//If the buffer is empty, store the packet as first
+	if(buff[i] == NULL){
+		//If the buffer is empty, store the packet as first 	
 		buff[i] = pk;
 		
-	}else if(buff[size-1] != NULL){		//If the buffer is full don't do anything
-		printf("Buffer overflow\n");
-	}else{									//In all other cases: store the packet in order
+	}else if(buff[size-1] != NULL){		
+		//If the buffer is full don't do anything
+
+	}else{
+		//In all other cases: store the packet in order									
 		while(buff[i] != NULL){
 			if(pk->seq_num < buff[i]->seq_num){
 				order_rwnd(pk, buff, i);
@@ -133,22 +95,19 @@ void store_rwnd(Packet* pk, Packet* buff[], int size) {
 
 		buff[i] = pk;
 	}
-
-	print_rwnd(buff);
 }
 
-/* INCOMING ACK 
- * @brief react to an ack reception: 
-                find the packet that the ack acknowledges;
-                check if there are still in flight packets and, if so, restart the timer and refresh the window;
-                if there are no more packets in flight, match the ack with the packet stop the timer and recompute the timeout interval
- * @param thread: id of the thread that has received the ack;
-          ack: ack packet;
-          list: transmission windows;
-          free_space: usable window size
-          ack_to: timeout structure in the ack packet;
-          timerid: id of the timer related to the thread;
-          thread_to: timeout structure of the thread:
+
+/* INCOMING_ACK 
+ * @brief react to an ack reception;
+ * @param thread: server thread id;
+ 		  cli: client that sent the ack;
+ 		  ack: pointer to the ack;
+ 		  list: receive windows;
+ 		  free_space: space left in the receive buffer;
+ 		  ack_to: Timeout struct associated with the ack;
+ 		  timerid: id of the timer;
+ 		  thread_to: Timeout struct associated with the thread
  */
 
 void incoming_ack(int thread, Client* cli, Packet *ack, Packet* list[][INIT_WND_SIZE], short* free_space, Timeout ack_to, timer_t timerid, Timeout* thread_to){
@@ -157,25 +116,20 @@ void incoming_ack(int thread, Client* cli, Packet *ack, Packet* list[][INIT_WND_
     //Find the packet in the transmission window that the ACK received ackowledges
     for(i=0; i<(INIT_WND_SIZE - *free_space); i++){
         if(list[thread][i]->seq_num == ack->ack_num){
-            //printf("Received ACK related to packet #%lu.\n", list[thread][i]->seq_num);
             break;
         }
     }
 
     //Fast retransmission handling
-    //printf("\033[1;32mFAST RETRANSMISSION HANDLING STARTS.\033[0m\n");
     if (ack->ack_num != cli->last_ack_received) {
-        //printf("\033[1;32mNew ack received.\033[0m");
         cli->last_ack_received = ack->ack_num;
         cli->ack_counter = 0;
     } else {
         cli->ack_counter++;
         if (cli->ack_counter == 3) {
             cli->ack_counter = 0;   // reset ack counter for this client
-            //printf("\033[1;32mFast retransmitting packet #%lu\n", list[thread][i]->seq_num);
             disarm_timer(timerid);
             retransmission(&timerid, true, thread);   //retransmit
-            printf("Fast retransmitted packet #%lu\n", list[thread][i]->seq_num);
         }
     }
 

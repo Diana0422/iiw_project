@@ -3,11 +3,11 @@
 //Header file related to the definition of a packet and the prototypes of the functions concerning packet management
 //
 
+#include "timeout.h"
+
 #include <stddef.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-#include "timeout.h"
 
 #define PAYLOAD 65467
 
@@ -37,4 +37,4 @@ extern int handshake(Packet*, unsigned long*, int, struct sockaddr_in*, socklen_
 
 extern int demolition(int, struct sockaddr_in*, socklen_t, Timeout*, timer_t);
 
-extern void print_packet(Packet); 
+

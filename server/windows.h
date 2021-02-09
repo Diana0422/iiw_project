@@ -1,4 +1,5 @@
 #include "packet.h"
+
 #include <stdlib.h>
 
 #define INIT_WND_SIZE 10       //Initial dimension of the transmission window

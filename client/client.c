@@ -1,8 +1,7 @@
 //
 //  client.c
-//  
-//
 //  Created by Diana Pasquali on 20/07/2020.
+//
 
 #define pragma once
 #define _GNU_SOURCE
@@ -29,7 +28,7 @@ Socket_node* sock_head;
 void* log_thread(void* p){
     char buff[MAXLINE];
 
-    sprintf(buff, "mate-terminal -e 'tail -F %s --pid %d'", (char*)p, getpid());
+    sprintf(buff, "mate-terminal -e 'tail -f %s --pid %d'", (char*)p, getpid());
     system(buff);
 
     pthread_exit(0);
@@ -48,37 +47,27 @@ void retransmission(timer_t* ptr){
     Timer_node* tm_node = timer_head;
     Socket_node* sock_node = sock_head;
 
-    printf("In retransmission.\n");
     while(tm_node->next != NULL){
-        printf("here0.\n");
+
         if(tm_node->timerid == ptr){
             break;
         }
-        printf("here1.\n");
+        
         tm_node = tm_node->next;
-        printf("here2.\n");
+        
         if (pk_node->next != NULL) {
             pk_node = pk_node->next;
         }
-        printf("here3.\n");
+        
         sock_node = sock_node->next;
         i++;
     }
-    /*
-    // Print some log messages
-    if (pk_node->pk->type == ACK) {        
-        printf("Retransmitting packet #%lu...\n", pk_node->pk->ack_num);
-    } else if (pk_node->pk->type == DATA) {
-        printf("Retransmitting packet #%lu...\n", pk_node->pk->seq_num);
-    }*/
 
     /* Re-send the packet */
-    printf("\033[1;32mPacket retransmitted:\033[0m\n");
     if (pk_node->pk == NULL) {
         return;
     }
-    //print_packet(*pk_node->pk);
-    printf("retransmission: packet %p.\n", pk_node->pk);
+
     if (send_packet(pk_node->pk, sock_node->sockfd, (struct sockaddr*)&servaddr, addrlen, &(tm_node->to)) == -1) {
         fprintf(stderr, "\033[0;31mError: couldn't send packet #%lu.\033[0m\n", (pk_node->pk)->seq_num);
         return;
@@ -155,9 +144,7 @@ void* ack_thread(void* arg){
 		        base->pk = wnd[0];  
 		        pthread_mutex_unlock(mux);     
 		   	}
-		}
-        
-	    //memset(pk_rcv, 0, sizeof(Packet));  
+		} 
     }
                                                                       
     free(pk_rcv);
@@ -191,13 +178,12 @@ int request_list(int sock, unsigned long send_next, unsigned long rcv_next, Time
 
         if(pk->seq_num == rcv_next){
     	//Packet received in order: gets read by the client
-    	//printf("Received packet #%lu in order.\n", pk->seq_num);
 
             //Check if transmission has ended.
             if(pk->data_size == 0){
                 //Data transmission completed: check if the receive buffer is empty
                 if(rcv_buffer[0] == NULL){
-                    printf("Transmission has completed successfully.\n");
+                    printf("Transmission was completed successfully.\n");
                     fflush(stdout);
                     return 0;
                 }
@@ -243,7 +229,6 @@ int request_list(int sock, unsigned long send_next, unsigned long rcv_next, Time
 
         } else if(pk->seq_num > rcv_next){
             //Packet received out of order: store packet in the receive buffer
-            //printf("Received packet #%lu out of order.\n", pk->seq_num);
          	store_rwnd(pk, rcv_buffer, MAX_RVWD_SIZE);
          		
             //Send ACK for the last correctly received packet
@@ -253,7 +238,6 @@ int request_list(int sock, unsigned long send_next, unsigned long rcv_next, Time
   	
         } else{
             //Received duplicated packet
-            //printf("Received duplicated packet #%lu.\n", pk->seq_num);
 
             //Send ACK for the last correctly received packet
             if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
@@ -301,7 +285,7 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
         return 0;
     }
 
-    //Open the log
+    //Open the log and create the log thread
     sprintf(logname, "log/log%d.log", rand());
     log_d = fopen(logname, "w+");
     if (log_d == NULL) {
@@ -326,8 +310,8 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
     	if(recv_packet(pk, sock, (struct sockaddr*)&servaddr, addrlen, &(timer->to)) != -1){
     		if(pk->seq_num == rcv_next){
 	            sscanf(pk->data, "%d", &size);
-	            printf("RECEIVED SIZE = %d\n", size);
 	            rcv_next += (unsigned long)pk->data_size;
+
 	            //Send ACK for the last correctly received packet
                 if(send_ack(sock, servaddr, addrlen, send_next, rcv_next, &(timer->to))){
                     return 1;
@@ -343,9 +327,14 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
         if(pk->seq_num == rcv_next){
             //Check if transmission has ended.
             if(pk->data_size == 0){
-                //Data transmission completed: check if the receive buffer is empty
+                //Data transmission completed: check if the receive buffer is empty                
+
                 if(rcv_buffer[0] == NULL){
-                    printf("\rTransmission has completed successfully.\n");
+                	//Print progress
+			        percent = 1;  
+			        print_progress(percent, log_d); 
+
+                    printf("\rTransmission was completed successfully.\n");
                     fflush(stdout);
                     fclose(fp);
                     return 0;
@@ -357,13 +346,13 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
                 }
 
             }else{
-                //Packet receiver in order
+                //Packet received in order
                 write_size += fwrite(pk->data, 1, pk->data_size, fp);
                 rcv_next += (unsigned long)pk->data_size;
 
                 //Print progress
-		        percent = (double)write_size/size;        
-		        print_progress(percent, log_d);
+		        percent = (double)write_size/size;  
+		        print_progress(percent, log_d); 
 
                 //Check if there are other buffered data to read: if so, read it, reorder the buffer and update ack_num
                 i=0;
@@ -375,7 +364,7 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
 
                     //Print progress
 			        percent = (double)write_size/size;        
-			        print_progress(percent, log_d);
+			        print_progress(percent, log_d);   
                     
                     memset(pk, 0, sizeof(Packet));                   
                     memcpy(pk, rcv_buffer[i], sizeof(Packet));                   
@@ -420,9 +409,6 @@ int request_get(int sock, char* filename, unsigned long send_next, unsigned long
             fprintf(stderr, "Error: couldn't malloc packet.\n");
             return 0;
         }
-
-        //Print progress
-        //printf("\033[1;34m%ld bytes downloaded.\033[0m\n", write_size);
     }
 
     return 0;
@@ -541,7 +527,7 @@ int request_put(int sock, char* filename, unsigned long send_next, unsigned long
     if(pthread_create(&acktid, 0, ack_thread, (void*)buff)){
         fprintf(stderr, "pthread_create() failed");
         exit(-1);
-    }           // -> ACK_THREAD AGISCE SU BASE PERCHÉ GLIELO PASSO
+    }
   
     //Send the file to the server
     while((!feof(fp)) && (done != size)) {       
@@ -554,8 +540,6 @@ int request_put(int sock, char* filename, unsigned long send_next, unsigned long
             fprintf(stderr, "Error: couldn't send data.\n");
             return 1;
         }
-        //printf("\033[0;32mPacket sent:\033[0m\n");
-        print_packet(*pk);
         send_next += (unsigned long)pk->data_size;
 
         //Print progress
@@ -638,7 +622,6 @@ void* thread_function(void* arg){
 
     /** 3-WAY HANDSHAKE **/
     handshake(pk, &send_next, &rcv_next, sock, &servaddr, addrlen, timer);
-    printf("Connection opened\n");
     
     //Retrieve request
     tok = strtok(NULL, " \n");
@@ -688,7 +671,6 @@ void* thread_function(void* arg){
                 free(pk);
 
                 demolition(send_next, rcv_next, sock, &servaddr, addrlen, trans_base, timer);
-		        printf("Connection closed\n");
 		        pthread_exit(0);
             }
         }
@@ -720,7 +702,6 @@ void* thread_function(void* arg){
 
     } else { 
         demolition(send_next, rcv_next, sock, &servaddr, addrlen, trans_base, timer);
-        printf("Connection closed\n");
         pthread_exit(0);      
     }
 }

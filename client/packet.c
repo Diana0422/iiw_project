@@ -4,8 +4,12 @@
 
 /* CREATE_PACKET
  * @brief Allocate space for a packet and fill fields with metadata.
- * @param type: message type; seq_num: sequence number of the packet; size: data size; data: pointer to data buffer
- * @return Packet*
+ * @param seq_num: sequence number of the packet;
+ 	      ack_num: ack number of the packet; 
+ 	      size: data size; 
+ 	      data: pointer to data buffer;
+ 	      type: message type; 
+ * @return pointer to the new packet
  */
  
 Packet* create_packet(unsigned long seq_num, unsigned long ack_num, size_t size, char* data, packet_type type)
@@ -35,8 +39,8 @@ Packet* create_packet(unsigned long seq_num, unsigned long ack_num, size_t size,
    
 /* SERIALIZE_PACKET
  * @brief Serialize packet data into a buffer that can be sent through a socket
- * @param packet: packet to read
- * @return char* buffer: pointer to packet.
+ * @param packet: pointer to the packet to read;
+ * @return char* buffer: pointer to the serialized packet.
  */
     
 char* serialize_packet(Packet* packet)
@@ -47,13 +51,6 @@ char* serialize_packet(Packet* packet)
 		exit(EXIT_FAILURE);
 	}
 	memset(buffer, 0, MAX_DGRAM_SIZE);
-
-	printf("serialize_packet: packet %p\n", packet);
-	
-	/*printf("seq_num %lu\n", packet->seq_num);
-	printf("ack_num %lu\n", packet->ack_num);
-	printf("data_size %ld\n", packet->data_size);
-	printf("type %d\n", (int)packet->type);*/
 
 	sprintf(buffer, "%lu %lu %ld %d ", packet->seq_num, packet->ack_num, packet->data_size, (int)packet->type);
 	
@@ -69,8 +66,8 @@ char* serialize_packet(Packet* packet)
 
 /* UNSERIALIZE_PACKET
  * @brief Unserialize data from a memory area into a packet (struct)
- * @param buffer: pointer to source memory area, packet: pointer to destination packet.
- * @return Packet* packet: pointer to packet.
+ * @param buffer: pointer to source memory area;
+ * @return unserialized packet.
  */
 
 Packet unserialize_packet(char* buffer)
@@ -95,7 +92,6 @@ Packet unserialize_packet(char* buffer)
 	
 	memset(pk->data, 0, pk->data_size);
 	if(pk->data_size){
-		//memmove(buffer, buffer+len, pk->data_size);
 		memcpy(pk->data, buffer+len, pk->data_size);
 	}else{
 		strcpy(pk->data, buffer+len);
@@ -106,9 +102,13 @@ Packet unserialize_packet(char* buffer)
     
 
 /* SEND_PACKET
- * @brief Sends a struct through socket;
- * @param pkt = pointer to struct to send, socket = socket descriptor, addr = destination address, addrlen = destination address length
- * @return 1 = error, n = ok
+ * @brief Sends a packet through socket;
+ * @param pkt = pointer to the packet to send;
+ 		  socket = socket descriptor;
+ 		  addr = destination address;
+ 		  addrlen = destination address length;
+ 		  t = pointer to the timeout struct assigned to the packet;
+ * @return -1 = error, else ok
  */
  
  int send_packet(Packet *pkt, int socket, struct sockaddr* addr, socklen_t addrlen, Timeout* t)
@@ -122,14 +122,12 @@ Packet unserialize_packet(char* buffer)
 
  	int n;
 
-	printf("send_packet: packet %p\n", pkt);
  	memcpy(buffer, serialize_packet(pkt), MAX_DGRAM_SIZE);
  	
 	gettimeofday(&t->start, NULL);
 	
 	if(loss_with_prob(LOSS_PROB)){	
 		n = 1;
-		printf("\033[0;31mPACKET LOSS.\033[0m\n");
 	}else{
 		if ((n = sendto(socket, buffer, MAX_DGRAM_SIZE, 0, (struct sockaddr*)addr, addrlen)) == -1) {
 	 		printf("\033[0;31mTRANSMISSION TIMEOUT: max wait time reached.\033[0m\n");
@@ -141,23 +139,27 @@ Packet unserialize_packet(char* buffer)
  }
 
  /* SEND_ACK
- * @brief Sends an ACK through socket;
- * @param 
- * @return 
+ * @brief Sends an ACK packet through socket;
+ * @param socket = socket descriptor;
+ 		  addr = destination address;
+ 		  addrlen = destination address length;
+ 		  seq = sequence number of the ack;
+ 		  ack = ack number of the ack;
+ 		  to = pointer to the timeout struct assigned to the ack;
+ * @return 1 for error, 0 for success
  */
  
  int send_ack(int socket, struct sockaddr_in addr, socklen_t addrlen, unsigned long seq, unsigned long ack, Timeout* to)
  {
  	Packet* pack;
 
- 	//printf("Sending ACK #%lu.\n", ack);
     pack = create_packet(seq, ack, 0, NULL, ACK);
     if (send_packet(pack, socket, (struct sockaddr*)&addr, addrlen, to) == -1) {
         fprintf(stderr, "Error: couldn't send ack #%lu.\n", pack->ack_num);
         free(pack);
         return 1;
     } 
-    //printf("ACK #%lu correctly sent.\n", pack->ack_num);
+
     free(pack); 
 
     return 0;
@@ -165,8 +167,12 @@ Packet unserialize_packet(char* buffer)
  
 
 /* RECV_PACKET
- * @brief Receive a packet/struct through a socket
- * @param pkt: pointer to packet, socket: socket descriptor, addr: pointer to address struct, addlen: size of addr
+ * @brief Receive a packet through a socket
+ * @param pkt: pointer to packet; 
+ 		  socket: socket descriptor;
+ 		  addr: pointer to address struct;
+ 		  addlen: size of addr
+ 		  t = pointer to the timeout struct assigned to the packet;
  * @return error: -1, success: n
  */
  
@@ -197,8 +203,6 @@ Packet unserialize_packet(char* buffer)
  {
  	char buffer[MAX_DGRAM_SIZE];
  	int n;
- 	
- 	//memset(buffer, 0, MAX_DGRAM_SIZE);
 
  	while ((n = recvfrom(socket, buffer, MAX_DGRAM_SIZE, MSG_DONTWAIT, (struct sockaddr*)addr, &addrlen)) == -1) {
  		if(errno == EWOULDBLOCK){
@@ -215,59 +219,3 @@ Packet unserialize_packet(char* buffer)
 	
 	return n;
  }
-
-//DEBUG
-
-/* PRINT_PACKET 
- * @brief printf the individual fields of a packet.
- * @param packet to print
- */
-
-void print_packet(Packet pk){
-	char type_str[7];
-	int type_int = (int)(pk.type);
-	char byte_str[50];
-	char buff[MAX_DGRAM_SIZE];
-
-	printf("--PACKET--\n");
-
-	switch(type_int){
-		case 0:
-			strcpy(type_str, "DATA");
-			break;
-		case 1:
-			strcpy(type_str,"ACK");
-			break;
-		case 2:
-			strcpy(type_str,"SYN");
-			break;
-		case 3:
-			strcpy(type_str,"SYNACK");
-			break;
-		case 4:
-			strcpy(type_str,"FIN");
-			break;
-		case 5:
-			strcpy(type_str,"FINACK");
-			break;
-	}
-
-	//printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\n\n", type_str, pk.seq_num, pk.ack_num, pk.data_size);
-	
-	int i, count = 1;
-	for (i = 0; i < (int)pk.data_size; i++){
-		sscanf(byte_str, "%02X", pk.data[i]);
-		strcat(buff, byte_str);
-		memset(byte_str, 0, strlen(byte_str));
-	    count++;
-	}
-	
-	printf("Type: %s\nSeq: %lu\nAck: %lu\nData size: %ld\nData: %02X\n", type_str, pk.seq_num, pk.ack_num, pk.data_size, buff);
-	printf("\n\n");
-
-	/*int i, count = 1;
-	for (i = 0; i < (int)pk.data_size; i++){
-	    printf("%d: %02X\n", count, pk.data[i]);
-	    count++;
-	}*/
-}

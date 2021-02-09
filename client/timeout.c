@@ -21,11 +21,14 @@ void timeout_interval(Timeout* time)
 	//convert interval double to timeval structure values
 	usec = interval * 1000;	
 	time->interval.tv_sec = usec /1000000;
-	time->interval.tv_usec = usec % 1000000;	
-
-	//printf("** interval.tv_usec = %ld\033[0m\n", time->interval.tv_usec);
+	time->interval.tv_usec = usec % 1000000;
 }
 
+/* ARM_TIMER
+ * @brief starts timer for transmission
+ * @param timer: pointer to Timer_node struct
+ 		  first: 1 if timer is not set
+ */
 
 void arm_timer(Timer_node* timer, int first){
 	struct itimerspec its;
@@ -49,6 +52,11 @@ void arm_timer(Timer_node* timer, int first){
 	}
 }
 
+/* DISARM_TIMER
+ * @brief stops timer for transmission
+ * @param id: timer id
+ */
+
 void disarm_timer(timer_t id){
 	struct itimerspec its;
 	memset(&its, 0, sizeof(its));
@@ -58,14 +66,23 @@ void disarm_timer(timer_t id){
 	}
 }
 
+/* TIMEOUT_HANDLER
+ * @brief event handler for timeout
+ * @param sig: signal number
+ 		  si: pointer to signal info struct
+ */
+
 void timeout_handler(int sig, siginfo_t* si, void* uc){
 
 	timer_t* tmptr;		//Pointer to the timer that caused a timeout
 	tmptr = si->si_value.sival_ptr;
-	printf("retransmission due to timeout.\n");
 	retransmission(tmptr);
-	printf("retransmission completed.\n");
 }
+
+/* INSERT_TIMER
+ * @brief inserts a new timer in the queue
+ * @param head: pointer to the head node of the queue
+ */
 
 Timer_node* insert_timer(Timer_node** head){
     Timer_node *prev;
