@@ -1,9 +1,8 @@
 #include "client.h"
 
 /* TIMEOUT_INTERVAL
- * @brief returns a timeout interval to wait for ack to be received
+ * @brief calculates a timeout interval to wait for ack to be received
  * @param time: pointer to Timeout struct
- * @return double interval
  */
 
 void timeout_interval(Timeout* time) 
